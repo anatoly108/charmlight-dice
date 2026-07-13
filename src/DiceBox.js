@@ -1,5 +1,6 @@
 import * as THREE from "three"
 import * as CANNON from "cannon-es"
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js"
 
 import { DiceNotation } from './DiceNotation.js';
 import { DiceFactory } from './DiceFactory.js';
@@ -145,6 +146,15 @@ class DiceBox {
 		this.renderer.shadowMap.enabled = this.shadows;
 		this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 		this.renderer.setClearColor(0x000000, 0);
+
+		// give PBR materials (metal/glass/wood) something to reflect; without a
+		// scene.environment, MeshStandardMaterial envMapIntensity has nothing to act on
+		// and metallic/glossy dice render as flat dark blobs.
+		if (!this.scene.environment) {
+			const pmrem = new THREE.PMREMGenerator(this.renderer);
+			this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+			pmrem.dispose();
+		}
 
 		this.setDimensions(this.dimensions);
 
@@ -409,11 +419,14 @@ class DiceBox {
 	}
 
 	//returns an array of vectordata objects
-	getNotationVectors(notation, vector, boost, dist){
+	getNotationVectors(notation, vector, boost, dist, colorset = null, label = null){
 
 		let notationVectors = new DiceNotation(notation);
 
 		for (let i in notationVectors.set) {
+
+			notationVectors.set[i].colorset = colorset;
+			notationVectors.set[i].label = label ?? colorset;
 
 			const diceobj = this.DiceFactory.get(notationVectors.set[i].type);
 			let numdice = notationVectors.set[i].num;
@@ -497,9 +510,11 @@ class DiceBox {
 					func: func, 
 					args: args, 
 					pos: pos, 
-					velocity: velocity, 
-					angle: angle, 
-					axis: axis
+					velocity: velocity,
+					angle: angle,
+					axis: axis,
+					colorset: colorset,   // NEW
+					label: label ?? colorset   // NEW
 				});
 			}            
 		}
@@ -630,7 +645,8 @@ class DiceBox {
 		let dicemesh
 		
 		if(!reset) {
-			dicemesh = this.DiceFactory.create(vectordata.type, this.colorData);
+			const colordata = (vectordata.colorset && this.DiceColors.colorsets[vectordata.colorset]) || this.colorData;
+			dicemesh = this.DiceFactory.create(vectordata.type, colordata);
 			if(!dicemesh) return;
 			dicemesh.notation = vectordata;
 			dicemesh.result = [];
@@ -887,20 +903,21 @@ class DiceBox {
 		}
 	}
 
+	computeThrowVector() {
+		const vector = { x: (Math.random() * 2 - 0.5) * this.display.currentWidth, y: -(Math.random() * 2 - 0.5) * this.display.currentHeight };
+		const dist = Math.sqrt(vector.x * vector.x + vector.y * vector.y) + 100;
+		const boost = (Math.random() + 3) * dist * this.strength;
+		return { vector, dist, boost };
+	}
+
 	startClickThrow(notation) {
 		// if (this.rolling) return;
 		if(this.rolling) {
 			this.clearDice();
 			this.rolling = false
 		}
-
-		let vector = { x: (Math.random() * 2 - 0.5) * this.display.currentWidth, y: -(Math.random() * 2 - 0.5) * this.display.currentHeight };
-		let dist = Math.sqrt(vector.x * vector.x + vector.y * vector.y) + 100;
-		let boost = (Math.random() + 3) * dist * this.strength;
-
-		const notationVectors = this.getNotationVectors(notation, vector, boost, dist);
-
-		return notationVectors
+		const { vector, dist, boost } = this.computeThrowVector();
+		return this.getNotationVectors(notation, vector, boost, dist);
 	}
 
 	clearDice() {
@@ -921,6 +938,7 @@ class DiceBox {
 				type: this.diceList[id].shape,
 				sides: parseInt(this.diceList[id].shape.substring(1)),
 				id,
+				colorset: this.diceList[id].notation?.colorset ?? null,   // NEW
 				...this.diceList[id].result.at(-1)
 			}
 		}
@@ -942,6 +960,7 @@ class DiceBox {
 						type: set.type,
 						sides: parseInt(set.type.substring(1)),
 						id: counter,
+						colorset: set.colorset ?? null,   // NEW
 						...this.diceList[counter].result.at(-1)
 					})
 					setTotal += this.diceList[counter].result.at(-1).value
@@ -951,6 +970,8 @@ class DiceBox {
 					num: set.num,
 					type: set.type,
 					sides: parseInt(set.type.substring(1)),
+					colorset: set.colorset ?? null,   // NEW
+					label: set.label ?? null,         // NEW (set-level label lives HERE, not on rolls)
 					rolls,
 					total: setTotal,
 				}
@@ -983,6 +1004,47 @@ class DiceBox {
 				})
 			})
 		}
+	}
+
+	// Roll several independently-parsed notations as ONE combined physics throw,
+	// each notation tagged with its own colorset. Two specs of the same die type
+	// never merge into a single set: addSet()'s duplicate-key merge only runs
+	// within one parseNotation() call, and mergeNotation() concatenates set[]/
+	// vectors[] across instances with no re-keying.
+	// specs: [{ notation: '1d100+1d10', colorset: 'fire', label: 'fire' }, ...]
+	async rollMulti(specs) {
+		if (!Array.isArray(specs) || specs.length === 0) return;
+
+		// Pre-warm every distinct colorset's texture BEFORE any synchronous spawn
+		// work — spawnDice reads this.DiceColors.colorsets[name] synchronously.
+		// This await must complete before rollDice() is called; do not reorder.
+		await Promise.all(
+			[...new Set(specs.map(s => s.colorset).filter(Boolean))]
+				.map(name => this.DiceColors.getColorSet({ colorset: name }))
+		);
+
+		if (this.rolling) {
+			this.clearDice();
+			this.rolling = false;
+		}
+		const { vector, dist, boost } = this.computeThrowVector();
+
+		let combined = null;
+		for (const spec of specs) {
+			const nv = this.getNotationVectors(spec.notation, vector, boost, dist, spec.colorset ?? null, spec.label ?? spec.colorset ?? null);
+			combined = combined ? DiceNotation.mergeNotation(combined, nv) : nv;
+		}
+		combined.notation = specs.map(s => s.notation).join('+'); // cosmetic only
+		this.notationVectors = combined;
+
+		return new Promise((resolve, reject) => {
+			this.rollDice(() => {
+				const results = this.getDiceResults();
+				this.onRollComplete(results);
+				document.dispatchEvent(new CustomEvent('rollComplete', { detail: results }));
+				resolve(results);
+			});
+		});
 	}
 
 	async reroll(diceIdArray) {

@@ -51,7 +51,7 @@ class DiceFactory {
 	}
 
 	// returns a dicemesh (THREE.Mesh) object
-	create(type) {
+	create(type, colordata) {
 		let diceobj = this.get(type);
 		if (!diceobj) return null;
 
@@ -62,6 +62,7 @@ class DiceFactory {
 		}
 		if (!geom) return null;
 
+		if (colordata) this.applyColorSet(colordata);   // NEW: per-die colorset override
 		this.setMaterialInfo();
 
 		let dicemesh = new THREE.Mesh(geom, this.createMaterials(diceobj, this.baseScale / 2, 1.0));
@@ -202,7 +203,7 @@ class DiceFactory {
 			var mat;
 			if (this.dice_material != 'none') {
 				mat = new THREE.MeshStandardMaterial(MATERIALTYPES[this.dice_material]);
-				mat.envMapIntensity = 0;
+				mat.envMapIntensity = MATERIALTYPES[this.dice_material]?.envMapIntensity ?? 1;
 			} else {
 				mat = new THREE.MeshPhongMaterial(this.material_options);
 			}
