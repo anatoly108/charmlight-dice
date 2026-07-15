@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## 0.1.1
+
+### New API
+- Added `addMulti(specs)`: the additive counterpart to `rollMulti()`. Adds several independently-parsed, independently-colorset-tagged dice notations to the table as a single combined physics throw, without clearing the dice already present (same non-destructive semantics as `add()`, generalized to multiple notations/colorsets). Resolves with the same flat per-die results array shape as `add()`; falls back to `rollMulti(specs)` when the table is empty, mirroring `add()`'s existing fallback to `roll()`.
+- `add(notationSting)` is now implemented as a thin delegator to `addMulti([{ notation: notationSting }])` - behavior is unchanged.
+
 ## 0.1.0
 
 ### Audio

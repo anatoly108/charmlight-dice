@@ -3,7 +3,7 @@
 
 Based on [Major's 3D Dice](https://majorvictory.github.io/3DDiceRoller/)
 
-The goal of this project is to decouple the UI of Major's 3D Dice and keep the dice box focused: dice notation goes in, a JSON results object comes out when the roll finishes, and the API around that gives you a full roll lifecycle to manage - add dice to a settled table, reroll specific dice, remove dice, roll multiple colorsets/notations as one combined throw (`rollMulti()`), and theme the table (colors, texture, material) at runtime.
+The goal of this project is to decouple the UI of Major's 3D Dice and keep the dice box focused: dice notation goes in, a JSON results object comes out when the roll finishes, and the API around that gives you a full roll lifecycle to manage - add dice to a settled table (`add()`/`addMulti()`), reroll specific dice, remove dice, roll multiple colorsets/notations as one combined throw (`rollMulti()`), and theme the table (colors, texture, material) at runtime.
 
 Why another dice roller when you have [@3d-dice/dice-box](https://github.com/3d-dice/dice-box)?
 Teall dice had already solved predeterministic rolling, which is a feature some developers really need. Major's 3D dice are based on Teall Dice.
@@ -104,15 +104,28 @@ Each entry in the `specs` array is an object:
 
 `rollMulti()` returns a Promise that resolves with the same shape as `roll()`'s result (a `sets[]` array, one entry per spec, each with its own `rolls`, `total`, `colorset`, and `label`, plus an overall `total`). Note that two specs of the same die type are never merged into a single set — each spec always produces its own `sets[]` entry, even if two specs use the same dice type.
 
+## Adding Multiple Colorsets At Once: `addMulti()`
+`addMulti()` is the additive counterpart to `rollMulti()`: it adds several independently-parsed dice notations to the table as a single combined physics throw, each notation using its own colorset, **without** clearing the dice already on the table (like `add()`, but for more than one notation/colorset at a time).
+
+```js
+const results = await Box.addMulti([
+  { notation: '1d6', colorset: 'fire', label: 'fire' },
+  { notation: '1d6', colorset: 'poison', label: 'poison' },
+])
+```
+
+The `specs` array uses the exact same per-entry shape as `rollMulti()` (`notation` required, `colorset`/`label` optional). `addMulti()` returns a Promise that resolves with the same flat per-die results array shape as `add()` (one entry per newly-added die, each with its own `colorset`), not `rollMulti()`'s `sets[]` shape. If the table is empty when `addMulti()` is called, it falls back to `rollMulti(specs)` (mirroring `add()`'s existing fallback to `roll()`) — in that case the resolved shape is `rollMulti()`'s `sets[]` shape instead. `Box.add(notationSting)` is now a thin wrapper around `Box.addMulti([{ notation: notationSting }])`.
+
 ## Removing And Rerolling Dice
 - `Box.reroll(diceIdArray)` — re-throws the specific dice (by `id`, from a previous result) and resolves with just their updated results. Fires `onRerollComplete` / the `rerollComplete` event.
 - `Box.add(notationSting)` — adds more dice to the ones already on the table without re-rolling existing dice. Fires `onAddDiceComplete` / the `addDiceComplete` event.
+- `Box.addMulti(specs)` — same as `add()`, but adds several independently-colorset-tagged notations as one combined throw. See [Adding Multiple Colorsets At Once](#adding-multiple-colorsets-at-once-addmulti) above. Also fires `onAddDiceComplete` / the `addDiceComplete` event.
 - `Box.remove(diceIdArray)` — removes specific dice from the table. Fires `onRemoveDiceComplete` / the `removeDiceComplete` event.
 
 ## Error Handling
-`roll()`, `rollMulti()`, `add()`, and `reroll()` all return Promises that can **reject**, so calls should be wrapped in `try`/`catch` (or given a `.catch()`):
+`roll()`, `rollMulti()`, `add()`, `addMulti()`, and `reroll()` all return Promises that can **reject**, so calls should be wrapped in `try`/`catch` (or given a `.catch()`):
 - Malformed/unparseable dice notation (e.g. an unknown die type, or a malformed forced-result suffix like `2d6@1,garbage`) rejects with an `Error` describing the parse failure, and any dice already on the table are cleared.
-- If a new roll-type call (`roll()`/`add()`/`reroll()`/`rollMulti()`) supersedes a still-in-flight previous call (for example a rapid double-click, or calling `reroll()` before a prior roll's animation has finished), the **earlier** call's Promise rejects with `new Error('Roll superseded by a new roll')`. This is expected and can usually just be ignored — it means a newer roll took over.
+- If a new roll-type call (`roll()`/`add()`/`addMulti()`/`reroll()`/`rollMulti()`) supersedes a still-in-flight previous call (for example a rapid double-click, or calling `reroll()` before a prior roll's animation has finished), the **earlier** call's Promise rejects with `new Error('Roll superseded by a new roll')`. This is expected and can usually just be ignored — it means a newer roll took over.
 - Calling `Box.reroll(diceIdArray)` while a previous roll is still animating (the table hasn't settled yet) supersedes that previous call as above, but `reroll()` itself **also** rejects — with an `Error` explaining the table wasn't settled — instead of rerolling whatever dice happen to still be falling. The still-falling dice are cleared. Wait for the previous call's Promise (or its completion event) before calling `reroll()`.
 
 ## Cleaning Up: `destroy()`
@@ -124,6 +137,6 @@ The reroll-function notation `{r,...}` (e.g. `{r,2}` for "reroll all 2s") is acc
 ## Notes
 In order to use textures or sounds, you will need to manually copy the assets out of the `./public` folder and into your static assets folder where you're building your app, or set the `assetPath` config option to point at wherever you host them.
 
-Sound playback uses the Web Audio API internally. On browsers that require a user gesture before audio can play (notably iOS Safari), sounds may be silent on the very first roll if it happens before any click/tap on the page; subsequent user-triggered rolls (click-to-roll, `add()`, `reroll()`, `rollMulti()`) will have unlocked audio automatically.
+Sound playback uses the Web Audio API internally. On browsers that require a user gesture before audio can play (notably iOS Safari), sounds may be silent on the very first roll if it happens before any click/tap on the page; subsequent user-triggered rolls (click-to-roll, `add()`, `addMulti()`, `reroll()`, `rollMulti()`) will have unlocked audio automatically.
 
 This package is ESM-only (`"type": "module"` in `package.json`) — there is no CommonJS build, so it must be `import`ed rather than `require`d.

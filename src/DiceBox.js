@@ -1377,46 +1377,107 @@ class DiceBox {
 		})
 	}
 
+	// Thin delegator: a single notation is just a one-spec addMulti() call
+	// with colorset/label omitted, so spawnDice() falls back to
+	// this.colorData (this.theme_colorset) exactly like the old
+	// startClickThrow(notation)-based implementation did. See addMulti()
+	// for the actual implementation and its behavioral comments.
 	async add(notationSting){
+		return this.addMulti([{ notation: notationSting }]);
+	}
+
+	// Add several independently-parsed notations to the table as ONE combined
+	// physics throw, each notation tagged with its own colorset - the
+	// additive counterpart to rollMulti() (see rollMulti()'s matching
+	// comment: two specs of the same die type never merge into a single
+	// set). Unlike rollMulti(), this does NOT clear the table: dice already
+	// present are left untouched and the new dice are simply added alongside
+	// them (mirrors add()'s existing behavior, which this replaces/absorbs).
+	// specs: [{ notation: '1d100+1d10', colorset: 'fire', label: 'fire' }, ...]
+	async addMulti(specs) {
+		// addMulti() is a user-triggered entry point whose first work MAY be
+		// a network-bound await (colorset pre-warming, below); on iOS Safari
+		// the user-gesture activation window for AudioContext.resume() can
+		// expire before that await resolves, so this must run synchronously
+		// as the very first statement - before any await - mirroring
+		// rollMulti()'s identical comment/reasoning.
+		this.resumeAudioContext();
+
+		if (!Array.isArray(specs) || specs.length === 0) return;
+
 		if (this.rolling) {
-			// a previous roll()/add()/reroll() is still in flight; settle its
-			// Promise instead of silently orphaning it (matches reroll()'s
-			// pattern). Unlike the settled-table case below, the dice on the
-			// table right now are NOT a finished roll - they're the
-			// interrupted call's still-falling dice, which was already
-			// rejected by supersedePendingRoll() - so mirror
-			// startClickThrow()'s own this.rolling branch and clearDice()
-			// them rather than silently adopting them into this add()'s
-			// result. dieCount below is computed after this, so an
-			// interrupted roll falls through to the !dieCount branch and
-			// becomes a fresh roll() instead of an add().
+			// a previous roll()/add()/addMulti()/reroll() is still in
+			// flight; settle its Promise instead of silently orphaning it
+			// (matches reroll()'s pattern). Unlike the settled-table case
+			// below, the dice on the table right now are NOT a finished
+			// roll - they're the interrupted call's still-falling dice,
+			// which was already rejected by supersedePendingRoll() - so
+			// mirror startClickThrow()'s own this.rolling branch and
+			// clearDice() them rather than silently adopting them into this
+			// addMulti()'s result. dieCount below is computed after this
+			// (and after the prewarm/guards), so an interrupted roll falls
+			// through to the !dieCount branch and becomes a fresh
+			// rollMulti() instead of an addMulti().
 			this.supersedePendingRoll();
 			this.clearDice();
 			this.rolling = false;
 		}
 
-		let dieCount = this.diceList.length
-		if(!dieCount) return this.roll(notationSting)
+		// Claim ownership of this.diceList/this.running/this.rollGeneration
+		// synchronously, BEFORE the colorset-prewarm await below - mirroring
+		// rollMulti()'s identical comment/reasoning.
+		const myGeneration = ++this.rollGeneration;
 
-		let addNotationVectors = this.startClickThrow(notationSting)
+		// Pre-warm every distinct colorset's texture BEFORE any synchronous
+		// spawn work, same as rollMulti() - but skip the await entirely when
+		// no spec carries a colorset, so the (very common) single-notation
+		// add() delegation path introduces no new await/yield point that
+		// wasn't there in the old startClickThrow()-based implementation.
+		const names = [...new Set(specs.map(s => s.colorset).filter(Boolean))];
+		if (names.length) {
+			await Promise.all(names.map(name => this.DiceColors.getColorSet({ colorset: name })));
+		}
+
+		// superseded (or destroyed) while yielding on the prewarm await above
+		// (when there was one) - mirrors rollMulti()'s matching guard. When
+		// there were no colorsets to prewarm, this never actually yielded, so
+		// these checks are trivially true, but are kept unconditional to
+		// match rollMulti()'s shape and stay correct if that ever changes.
+		if (this._destroyed) throw new Error('DiceBox instance was destroyed');
+		if (myGeneration !== this.rollGeneration) throw new Error('Add superseded by a new roll/add/reroll');
+
+		let dieCount = this.diceList.length
+		// resolves with rollMulti()'s per-set/per-die results shape
+		// (colorset/label included on each set), not addMulti()'s flat
+		// per-die array - same caveat add()'s existing roll() fallback has
+		if(!dieCount) return this.rollMulti(specs)
+
+		const { vector, dist, boost } = this.computeThrowVector();
+
+		let addNotationVectors = null;
+		for (const spec of specs) {
+			const nv = this.getNotationVectors(spec.notation, vector, boost, dist, spec.colorset ?? null, spec.label ?? spec.colorset ?? null);
+			addNotationVectors = addNotationVectors ? DiceNotation.mergeNotation(addNotationVectors, nv) : nv;
+		}
+		addNotationVectors.notation = specs.map(s => s.notation).join('+'); // cosmetic only
 
 		if (addNotationVectors.error) {
-			// malformed notation: reject instead of resolving a fake success
-			// with an empty results array, mirroring rollDice()'s handling.
-			// Checked before any spawn/simulate work, so there is nothing
-			// new to clear here - the dieCount dice already on the table are
-			// untouched and must stay that way (unlike rollDice()'s
-			// clearDice(), which intentionally replaces the whole table).
+			// one or more specs failed to parse - not necessarily the first
+			// one merged, so this can't be caught by only checking the first
+			// spec (mergeNotation() ORs prevNotation.error/newNotation.error
+			// together so `addNotationVectors.error` is reliably true
+			// regardless of which spec, or how many, were malformed).
+			// Reject instead of resolving a fake success with an empty
+			// results array, mirroring add()'s handling (NOT rollMulti()'s,
+			// which clears the whole table) - checked before any
+			// spawn/simulate work, so there is nothing new to clear here:
+			// the dieCount dice already on the table are untouched and must
+			// stay that way.
 			this.activeReject = null;
 			throw new Error(`Malformed dice notation: "${addNotationVectors.notation}"`);
 		}
 
 		let diceIdArray = []
-
-		// see rollDice()'s matching comment: claim ownership of
-		// this.diceList/this.running so a superseding call can be detected
-		// when this coroutine resumes from its chunked simulateThrow() below
-		const myGeneration = ++this.rollGeneration;
 
 		for (let i=0, len=addNotationVectors.vectors.length; i < len; ++i) {
 			this.spawnDice(addNotationVectors.vectors[i]);

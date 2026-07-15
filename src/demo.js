@@ -4,6 +4,7 @@ import { COLORSETS } from './const/colorsets.js';
 const notationInput = document.getElementById('notation-input');
 const rollBtn = document.getElementById('roll-btn');
 const addBtn = document.getElementById('add-btn');
+const addMultiBtn = document.getElementById('addmulti-btn');
 const rerollBtn = document.getElementById('reroll-btn');
 const colorsetSelect = document.getElementById('colorset-select');
 const rollMultiBtn = document.getElementById('rollmulti-btn');
@@ -108,6 +109,14 @@ async function init() {
 	addBtn.addEventListener('click', () => {
 		clearError();
 		box.add('2d8').catch(err => showError(err.message));
+	});
+
+	addMultiBtn.addEventListener('click', () => {
+		clearError();
+		box.addMulti([
+			{ notation: '1d6', colorset: 'fire', label: 'fire' },
+			{ notation: '1d6', colorset: 'poison', label: 'poison' },
+		]).catch(err => showError(err.message));
 	});
 
 	rerollBtn.addEventListener('click', () => {
