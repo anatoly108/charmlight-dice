@@ -23,6 +23,14 @@ export class DicePreset {
 			return console.error("dice type unavailable")
 		}
 		Object.assign(this, defaults, DICE[name])
+		// Object.assign only copies array references, so without cloning, every instance of a given
+		// die type (and every type falling back to `defaults`) would share and mutate the same
+		// labels/normals/values/valueMap arrays. Clone them per-instance so registerFaces() and
+		// setValueMap() never corrupt the shared `defaults` object or the imported DICE constant.
+		this.labels = [...this.labels]
+		this.normals = [...this.normals]
+		this.values = [...this.values]
+		this.valueMap = [...this.valueMap]
 		this.shape = DICE[name].type || name
 		this.type = name
 
@@ -35,6 +43,10 @@ export class DicePreset {
 	}
 
 	setValues(min = 1, max = 20, step = 1) {
+		// dice with an explicit per-face values array (e.g. disotope's 12-entry [0,...,0,1]) must not
+		// be collapsed into a min/max/step range; every built-in die only ever configures a
+		// [min, max] or [min, max, step] triple (length <= 3), so anything longer is an explicit list.
+		if (this.values.length > 3) return;
 		this.values = this.range(min, max, step);
 	}
 

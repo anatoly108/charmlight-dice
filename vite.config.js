@@ -5,8 +5,14 @@ import { defineConfig } from 'vite'
 const root = resolve(__dirname, 'src')
 const outDir = resolve(__dirname, 'dist')
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   root,
+  // Only serve the top-level public/ (textures, sounds) during `vite`/`vite dev`,
+  // so the src/index.html demo page has real assets to load. Keep it disabled
+  // for `vite build` so the lib build's dist/ output is unaffected - public/ is
+  // intentionally shipped as a separate directory (see package.json "files"),
+  // not copied into dist.
+  publicDir: command === 'serve' ? resolve(__dirname, 'public') : false,
   build: {
     lib: {
       entry: resolve(__dirname, 'src/index.js'),
@@ -16,4 +22,4 @@ export default defineConfig({
     outDir,
     emptyOutDir: true,
   }
-})
+}))

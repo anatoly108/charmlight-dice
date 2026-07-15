@@ -1,4 +1,5 @@
 "use strict";
+import {DICE} from "./const/dice"
 
 export class DiceNotation {
 
@@ -66,7 +67,6 @@ export class DiceNotation {
 		// 7th group (?=@([\S ]*)|) :optional - predetermined results such as "@4,4,4" which forces the first three dice rolls to resolve as "4"
 		// TODO: roll groups
 
-		let resultsregex = new RegExp(/(\b)*(\-\d+|\d+)(\b)*/, 'gi'); // forced results: '1, 2, 3' or '1 2 3'
 		let res;
 
 		let runs = 0;
@@ -125,9 +125,24 @@ export class DiceNotation {
 			}
 		}
 
-		// forced results
-		if (!this.error && no[1] && (res = no[1].match(resultsregex)) !== null) {
-			this.result.push(...res);
+		// forced results: '1, 2, 3' or '1 2 3' (also accepts negative ints
+		// like '-1'). The old approach just pulled every digit-run out of
+		// no[1] with a global regex and ignored everything else - so
+		// '2d6@foo' silently matched nothing (this.result stayed empty, no
+		// error) and '2d6@1,garbage' silently matched only '1' (forcing just
+		// the first die and dropping 'garbage' with no indication anything
+		// was wrong). Validate every comma/space-separated token explicitly
+		// instead: if a forced-results suffix is present at all, every token
+		// in it must parse as a whole (optionally negative) integer, or the
+		// whole notation is malformed.
+		if (!this.error && no[1] !== undefined && no[1].length > 0) {
+			const tokens = no[1].split(/[,\s]+/).filter(t => t.length > 0);
+			const isValidToken = t => /^-?\d+$/.test(t);
+			if (tokens.length === 0 || !tokens.every(isValidToken)) {
+				this.error = true;
+			} else {
+				this.result.push(...tokens);
+			}
 		}
 	}
 
@@ -165,8 +180,7 @@ export class DiceNotation {
 
 	addSet(amount, type, groupID = 0, groupLevel = 0, funcname = '', funcargs = '', operator = '+') {
 
-		// let diceobj = this.DiceFactory.get(type);
-		// if (diceobj == null) { this.error = true; return; }
+		if (!type || !DICE.hasOwnProperty(type)) { this.error = true; return; }
 
 		amount = Math.abs(parseInt(amount || 1));
 
@@ -205,10 +219,18 @@ export class DiceNotation {
 	// set totalDice
 
 	static mergeNotation(prevNotation, newNotation){
+		// merge modifier constants as signed integers (sign from op, magnitude from constant),
+		// then re-normalize back into op ('' | '+' | '-') + non-negative constant magnitude
+		const prevSigned = prevNotation.constant ? (prevNotation.op === '-' ? -prevNotation.constant : prevNotation.constant) : 0;
+		const newSigned = newNotation.constant ? (newNotation.op === '-' ? -newNotation.constant : newNotation.constant) : 0;
+		const mergedSigned = prevSigned + newSigned;
+
 		// let our vectors combine
 		const newNotationVectors = {
 			...prevNotation,
-			constant: prevNotation.constant + newNotation.constant,
+			error: prevNotation.error || newNotation.error,
+			op: mergedSigned === 0 ? '' : (mergedSigned < 0 ? '-' : '+'),
+			constant: mergedSigned === 0 ? null : Math.abs(mergedSigned),
 			notation: prevNotation.notation + "+" + newNotation.notation,
 			set: [
 				...prevNotation.set,
