@@ -16,7 +16,7 @@
 		"d&d",
 		"tabletop"
 	],
-  "version": "0.0.12",
+  "version": "0.1.1",
   "license": "MIT",
   "homepage": "https://fantasticdice.games/",
 	"repository": {
@@ -26,15 +26,18 @@
 	"bugs": {
 		"url": "https://github.com/3d-dice/dice-box-threejs/issues"
 	},
-  "dev-files": [
-    "src"
-  ],
-  "dev-main": "./src/index",
-  "file": [
+  "type": "module",
+  "files": [
     "dist",
     "public"
   ],
   "main": "./dist/dice-box-threejs.es.js",
+  "exports": {
+    ".": {
+      "import": "./dist/dice-box-threejs.es.js",
+      "default": "./dist/dice-box-threejs.es.js"
+    }
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",

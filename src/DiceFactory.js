@@ -17,9 +17,28 @@ class DiceFactory {
 		// this.dice = {};
 		this.geometries = {};
 
-		this.materials_cache = {};
+		this.materials_cache = new Map();
+		this.materials_cache_capacity = 256;
 		this.cache_hits = 0;
 		this.cache_misses = 0;
+
+		// per-(type,face) bump normal-map Texture cache - this.get()'s underlying
+		// diceobj (DicePreset) is looked up from DiceFactory's STATIC `dice`
+		// registry and shared across every DiceFactory instance on the page, so
+		// the cache must live here (per-instance) instead of on diceobj, or it
+		// would be shared cross-instance and never disposed by any one
+		// instance's destroy()
+		this.normalTextureCache = new Map();
+
+		// materials_cache LRU eviction (see createTextMaterial below) can evict an
+		// entry whose CanvasTexture is still assigned to a die currently on some
+		// DiceBox's table - this factory has no visibility into that diceList to
+		// check. Disposing a texture still in use isn't unsafe (three.js just
+		// re-uploads it to the GPU on next use) but it is wasteful, so eviction
+		// defers actual .dispose() calls into this list; DiceBox.clearDice()/
+		// destroy() flush it via flushDeferredDispose() at points where any
+		// previously-evicted texture is safe to assume no longer referenced
+		this.deferredDispose = [];
 
 		this.label_color = '';
 		this.dice_color = '';
@@ -47,11 +66,35 @@ class DiceFactory {
 
 	setBumpMapping(bumpMapping){
 		this.bumpMapping = bumpMapping;
-		this.materials_cache = {};
+		this.disposeMaterialsCache();
+	}
+
+	// dispose every cached CanvasTexture (composite + bump), every cached
+	// per-(type,face) normal-map texture, and empty both caches
+	disposeMaterialsCache(){
+		this.materials_cache.forEach(entry => {
+			if (entry.composite) entry.composite.dispose();
+			if (entry.bump) entry.bump.dispose();
+		});
+		this.materials_cache.clear();
+
+		this.normalTextureCache.forEach(tex => tex && tex.dispose());
+		this.normalTextureCache.clear();
+	}
+
+	// disposes materials_cache entries that were evicted (LRU, see
+	// createTextMaterial) but whose disposal was deferred because they might
+	// still have been in use at eviction time
+	flushDeferredDispose(){
+		this.deferredDispose.forEach(entry => {
+			if (entry.composite) entry.composite.dispose();
+			if (entry.bump) entry.bump.dispose();
+		});
+		this.deferredDispose.length = 0;
 	}
 
 	// returns a dicemesh (THREE.Mesh) object
-	create(type) {
+	create(type, colordata) {
 		let diceobj = this.get(type);
 		if (!diceobj) return null;
 
@@ -62,6 +105,7 @@ class DiceFactory {
 		}
 		if (!geom) return null;
 
+		if (colordata) this.applyColorSet(colordata);   // NEW: per-die colorset override
 		this.setMaterialInfo();
 
 		let dicemesh = new THREE.Mesh(geom, this.createMaterials(diceobj, this.baseScale / 2, 1.0));
@@ -109,7 +153,7 @@ class DiceFactory {
 
 			let value = diceobj.values[((matindex-1) % diceobj.values.length)];
 			let label = diceobj.labels[(((matindex-1) % (diceobj.labels.length-2))+offset)];
-			
+
 			return {value: value, label: label, reason: reason};
 		}
 
@@ -151,7 +195,7 @@ class DiceFactory {
 				return this.fixmaterials(dicemesh, 1);
 			case 2:
 				return this.fixmaterials(dicemesh, 2);
-			case 3: 
+			case 3:
 				return this.fixmaterials(dicemesh, 3);
 			default:
 				return dicemesh;
@@ -197,12 +241,12 @@ class DiceFactory {
 			size = this.baseScale / 2;
 			margin = this.baseScale * 2;
 		}
-		
+
 		for (var i = 0; i < labels.length; ++i) {
 			var mat;
 			if (this.dice_material != 'none') {
 				mat = new THREE.MeshStandardMaterial(MATERIALTYPES[this.dice_material]);
-				mat.envMapIntensity = 0;
+				mat.envMapIntensity = MATERIALTYPES[this.dice_material]?.envMapIntensity ?? 1;
 			} else {
 				mat = new THREE.MeshPhongMaterial(this.material_options);
 			}
@@ -238,15 +282,32 @@ class DiceFactory {
 						mat.bumpMap = canvasTextures.bump;
 					}
 					if (diceobj.shape != 'd4' && diceobj.normals[i]) {
-						mat.bumpMap = new THREE.Texture(diceobj.normals[i]);
+						// cache one Texture per (die type, face index) instead of
+						// constructing+uploading a new one for every die every roll.
+						// Keyed on this per-instance DiceFactory (not on diceobj -
+						// diceobj comes from the STATIC DiceFactory.dice registry
+						// and is shared across every DiceFactory/DiceBox instance
+						// on the page, which would leak the cache cross-instance
+						// and leave it undisposed by any single instance's destroy())
+						const normalKey = `${diceobj.type}:${i}`;
+						let normalTexture = this.normalTextureCache.get(normalKey);
+						if (!normalTexture) {
+							normalTexture = new THREE.Texture(diceobj.normals[i]);
+							normalTexture.needsUpdate = true;
+							this.normalTextureCache.set(normalKey, normalTexture);
+						}
+						mat.bumpMap = normalTexture;
 						mat.bumpScale = 4;
-						mat.bumpMap.needsUpdate = true;
 					}
 				}
 			}
+			// only genuinely alpha-cutting composites (e.g. ice/water/cloudy) need
+			// transparent sorting with depth testing disabled; everything else
+			// should stay opaque so overlapping dice depth-sort correctly
+			let isAlphaComposite = this.dice_texture_rand && this.dice_texture_rand.composite === 'destination-in';
 			mat.opacity = 1;
-			mat.transparent = true;
-			mat.depthTest = false;
+			mat.transparent = isAlphaComposite;
+			mat.depthTest = !isAlphaComposite;
 			mat.needUpdate = true;
 			materials.push(mat);
 		}
@@ -280,9 +341,13 @@ class DiceFactory {
 		if (diceobj.shape == 'd4') {
 			cachestring = diceobj.type + textCache + texture.name + forecolor + outlinecolor + backcolor;
 		}
-		if (allowcache && this.materials_cache[cachestring] != null) {
+		if (allowcache && this.materials_cache.has(cachestring)) {
 			this.cache_hits++;
-			return this.materials_cache[cachestring];
+			// bump this entry to most-recently-used
+			let cached = this.materials_cache.get(cachestring);
+			this.materials_cache.delete(cachestring);
+			this.materials_cache.set(cachestring, cached);
+			return cached;
 		}
 
 		let canvas = document.createElement("canvas");
@@ -358,7 +423,7 @@ class DiceFactory {
 					} else {
 						degrees = rotateface.even
 					}
-				} 
+				}
 				// let degrees = ((rotateface.hasOwnProperty("all") ? rotateface.all : false) || (index > 0 && (index % 2) != 0)) ? rotateface.odd : rotateface.even;
 
 				if (degrees && degrees != 0) {
@@ -410,17 +475,18 @@ class DiceFactory {
 					textstarty -= (lineHeight * textlines.length) / 2;
 				}
 
+				let outlineWidth = Math.max(2, fontsize * 0.08);
 				for(let i = 0, l = textlines.length; i < l; i++){
 					let textline = textlines[i].trim();
 
 					// attempt to outline the text with a meaningful color
 					if (outlinecolor != 'none' && outlinecolor != backcolor) {
 						context.strokeStyle = outlinecolor;
-						context.lineWidth = 5;
+						context.lineWidth = outlineWidth;
 						context.strokeText(textlines[i], textstartx, textstarty);
 
 						contextBump.strokeStyle = "#000000";
-						contextBump.lineWidth = 5;
+						contextBump.lineWidth = outlineWidth;
 						contextBump.strokeText(textlines[i], textstartx, textstarty);
 
 						if (textline == '6' || textline == '9') {
@@ -447,8 +513,11 @@ class DiceFactory {
 			var hw = (canvas.width / 2);
 			var hh = (canvas.height / 2);
 
-			context.font =  (ts / 128 * 24)+'pt '+diceobj.font;
-			contextBump.font =  (ts / 128 * 24)+'pt '+diceobj.font;
+			let d4fontsize = ts / 128 * 24;
+			context.font =  d4fontsize+'pt '+diceobj.font;
+			contextBump.font =  d4fontsize+'pt '+diceobj.font;
+
+			let d4outlineWidth = Math.max(2, d4fontsize * 0.08);
 
 			//draw the numbers
 			for (let i=0; i<text.length; i++) {
@@ -460,11 +529,11 @@ class DiceFactory {
 					// attempt to outline the text with a meaningful color
 					if (outlinecolor != 'none' && outlinecolor != backcolor) {
 						context.strokeStyle = outlinecolor;
-						context.lineWidth = 5;
+						context.lineWidth = d4outlineWidth;
 						context.strokeText(text[i], hw, hh - ts * 0.3);
 
 						contextBump.strokeStyle = "#000000";
-						contextBump.lineWidth = 5;
+						contextBump.lineWidth = d4outlineWidth;
 						contextBump.strokeText(text[i], hw, hh - ts * 0.3);
 					}
 
@@ -492,6 +561,7 @@ class DiceFactory {
 		}
 
 		var compositetexture = new THREE.CanvasTexture(canvas);
+		compositetexture.encoding = THREE.sRGBEncoding; // color data; bump maps stay linear (default)
 		var bumpMap;
 		if (!isTexture) {
 			bumpMap = new THREE.CanvasTexture(canvasBump);
@@ -499,10 +569,34 @@ class DiceFactory {
 			bumpMap = null;
 		}
 
+		// textures built with allowcache=false (currently only swapDiceFace_D4's
+		// forced-result face swap) are never entered into materials_cache below,
+		// so nothing else can ever come to share them - mark them so disposal
+		// code (DiceBox.disposeMaterials()) can tell a uniquely-owned texture
+		// apart from one that's shared via materials_cache and must be left for
+		// disposeMaterialsCache()/eviction to dispose instead
+		if (!allowcache) {
+			compositetexture.userData.uniqueOwner = true;
+			if (bumpMap) bumpMap.userData.uniqueOwner = true;
+		}
+
 		if (allowcache) {
 			// cache new texture
 			this.cache_misses++;
-			this.materials_cache[cachestring] = {composite:compositetexture,bump:bumpMap};
+			this.materials_cache.set(cachestring, {composite:compositetexture,bump:bumpMap});
+
+			// LRU eviction: Map iteration order is insertion order, so the first
+			// key is the least-recently-used entry once capacity is exceeded.
+			// Disposal of the evicted entry is deferred (see this.deferredDispose
+			// above) rather than immediate: this factory can't tell whether the
+			// evictee's texture is still assigned to a die currently on some
+			// DiceBox's table.
+			if (this.materials_cache.size > this.materials_cache_capacity) {
+				let oldestKey = this.materials_cache.keys().next().value;
+				let oldestEntry = this.materials_cache.get(oldestKey);
+				this.deferredDispose.push(oldestEntry);
+				this.materials_cache.delete(oldestKey);
+			}
 		}
 
 		return {composite:compositetexture,bump:bumpMap};
@@ -520,10 +614,6 @@ class DiceFactory {
 
 	// pass in colorset data from dice-box
 	setMaterialInfo(colorset = '') {
-		let prevcolordata = this.colordata;
-		let prevtexture = this.dice_texture;
-		let prevmaterial = this.dice_material;
-
 		//reset random choices
 		this.dice_color_rand = '';
 		this.label_color_rand = '';
@@ -594,7 +684,7 @@ class DiceFactory {
 			var colorindex = this.label_outline[Math.floor(Math.random() * this.label_outline.length)];
 
 			this.label_outline_rand = this.label_outline[colorindex];
-			
+
 		} else if (this.label_outline_rand == '') {
 			this.label_outline_rand = this.label_outline;
 		}
@@ -616,12 +706,6 @@ class DiceFactory {
 		}
 
 		// console.log('this.colordata', this.colordata)
-
-		if (this.colordata &&this.colordata.id != prevcolordata.id) {
-			this.applyColorSet(prevcolordata, prevtexture, prevmaterial);
-			// this.applyTexture(prevtexture);
-			// this.applyMaterial(prevmaterial);
-		}
 	}
 
 	calc_texture_size(approx) {

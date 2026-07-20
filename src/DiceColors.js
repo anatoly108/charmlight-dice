@@ -2,7 +2,7 @@ import {TEXTURELIST} from "./const/texturelist"
 import {COLORSETS} from "./const/colorsets"
 
 export class DiceColors {
-	
+
 	constructor(options = {}) {
 		this.colorsets = []
 		this.assetPath = options.assetPath
@@ -16,11 +16,11 @@ export class DiceColors {
 			}
 			return data
 		}
-		
+
 		if (data.source && data.source != '') {
 			data.texture = await this.loadImage(data.source)
 		}
-		
+
 		if (data.source_bump && data.source_bump != '') {
 			data.bump = await this.loadImage(data.source_bump)
 		}
@@ -47,16 +47,16 @@ export class DiceColors {
 	// 	rgb[0] = Math.floor(Math.random() * 254);
 	// 	rgb[1] = Math.floor(Math.random() * 254);
 	// 	rgb[2] = Math.floor(Math.random() * 254);
-		
+
 	// 	// this is an attempt to make the foregroudn color stand out from the background color
 	// 	// it sometimes produces ok results
 	// 	let brightness = ((parseInt(rgb[0]) * 299) + (parseInt(rgb[1]) * 587) +  (parseInt(rgb[2]) * 114)) / 1000;
 	// 	let foreground = (brightness > 126) ? 'rgb(30,30,30)' : 'rgb(230,230,230)'; // high brightness = dark text, else bright text
 	// 	let background = 'rgb(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ')';
-		
+
 	// 	return {background: background, foreground: foreground };
 	// }
-	
+
 	async getColorSet(options) {
 		let setName, texture
 		if(typeof options === "string") {
@@ -70,9 +70,15 @@ export class DiceColors {
 			return this.colorsets[setName]
 		}
 
-		let colorset = COLORSETS[setName];
+		if (!COLORSETS.hasOwnProperty(setName)) {
+			throw new Error(`Unknown colorset: "${setName}"`);
+		}
+
+		// clone so we never mutate the shared COLORSETS constant (colorset.texture gets
+		// overwritten below with resolved image data, which must stay per-instance)
+		let colorset = {...COLORSETS[setName]};
 		texture = options.texture || colorset.texture
-		
+
 		// get texture data
 		colorset.texture = this.getTexture(texture)
 
@@ -117,7 +123,7 @@ export class DiceColors {
 
 		return colorset
 	}
-	
+
 	getTexture(texturename) {
 		if (Array.isArray(texturename)) {
 			let textures = [];
@@ -126,11 +132,13 @@ export class DiceColors {
 			}
 			return textures;
 		}
-		
+
+		// clone so callers can freely attach resolved image/material data without mutating
+		// the shared TEXTURELIST constant (multiple colorsets reuse the same texture keys)
 		if (TEXTURELIST.hasOwnProperty(texturename)) {
-			return TEXTURELIST[texturename]
+			return {...TEXTURELIST[texturename]}
 		}
-		return TEXTURELIST['none']
+		return {...TEXTURELIST['none']}
 	}
 
 }
