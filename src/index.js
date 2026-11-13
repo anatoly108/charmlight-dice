@@ -1,1 +1,1 @@
-export { DiceBox as default } from "./DiceBox"
+export { DiceBox as default, DiceBox } from "./DiceBox.js"

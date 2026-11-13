@@ -13,6 +13,7 @@ export default defineConfig({
       name: 'dice-box-threejs',
       fileName: (format) => `dice-box-threejs.${format}.js`
     },
+    rollupOptions: { output: { exports: 'named' } },
     outDir,
     emptyOutDir: true,
   }

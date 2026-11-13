@@ -1,7 +1,7 @@
 "use strict";
 import {DicePreset} from './DicePreset.js'
-import {MATERIALTYPES} from "./const/materialtypes"
-import {DICE_GEOM} from "./const/dice"
+import {MATERIALTYPES} from "./const/materialtypes.js"
+import {DICE_GEOM} from "./const/dice.js"
 
 import * as THREE from "three"
 import * as CANNON from "cannon-es"
@@ -43,6 +43,17 @@ class DiceFactory {
 		if(options.scale){
 			this.scaleGeometry()
 		}
+	}
+
+	// Frees the cached face textures and die shapes.
+	dispose() {
+		for (const cached of Object.values(this.materials_cache)) {
+			if (cached?.composite?.dispose) cached.composite.dispose();
+			if (cached?.bump?.dispose) cached.bump.dispose();
+		}
+		this.materials_cache = {};
+		for (const geometry of Object.values(this.geometries)) geometry.dispose();
+		this.geometries = {};
 	}
 
 	setBumpMapping(bumpMapping){
