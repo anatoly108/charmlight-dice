@@ -1,4 +1,5 @@
 import * as THREE from "three"
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js"
 import * as CANNON from "cannon-es"
 
 import { DiceNotation } from './DiceNotation.js';
@@ -145,6 +146,23 @@ class DiceBox {
 		this.renderer.shadowMap.enabled = this.shadows;
 		this.renderer.shadowMap.type = THREE.PCFShadowMap;
 		this.renderer.setClearColor(0x000000, 0);
+		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+		this.renderer.toneMapping = THREE.NeutralToneMapping;
+		this.renderer.toneMappingExposure = 1;
+
+		// Bake local studio softboxes once; no remote environment assets are needed.
+		const environment = new RoomEnvironment();
+		const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+		try {
+			if (this.environmentTarget) this.environmentTarget.dispose();
+			this.environmentTarget = pmremGenerator.fromScene(environment, 0.04);
+			this.scene.environment = this.environmentTarget.texture;
+			// RoomEnvironment is Y-up; the dice board is Z-up.
+			this.scene.environmentRotation.set(Math.PI / 2, 0, 0);
+		} finally {
+			environment.dispose();
+			pmremGenerator.dispose();
+		}
 
 		this.setDimensions(this.dimensions);
 
@@ -361,13 +379,16 @@ class DiceBox {
 		this.light.shadow.camera.near = maxwidth / 10;
 		this.light.shadow.camera.far = maxwidth * 5;
 		this.light.shadow.camera.fov = 50;
-		this.light.shadow.bias = 0.001;
-		this.light.shadow.mapSize.width = 1024;
-		this.light.shadow.mapSize.height = 1024;
+		this.light.shadow.bias = -0.0001;
+		this.light.shadow.normalBias = 0.5;
+		this.light.shadow.radius = 3;
+		const shadowSize = Math.min(this.container.clientWidth, this.container.clientHeight) < 500 ? 1024 : 2048;
+		this.light.shadow.mapSize.set(shadowSize, shadowSize);
 		this.scene.add(this.light);
 
-		this.light_amb = new THREE.HemisphereLight( 0xffffbb, 0x676771, this.light_intensity * Math.PI );
+		this.light_amb = new THREE.HemisphereLight( 0xffffbb, 0x676771, this.light_intensity * Math.PI * 0.3 );
 		this.scene.add(this.light_amb);
+		this.scene.environmentIntensity = this.light_intensity;
 
 		if (this.desk) this.scene.remove(this.desk);
 		let shadowplane = new THREE.ShadowMaterial();
@@ -384,7 +405,9 @@ class DiceBox {
 			const canvas = this.renderer.domElement;
 			const width = this.container.clientWidth;
 			const height = this.container.clientHeight;
-			const needResize = canvas.width !== width || canvas.height !== height;
+			const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+			if (this.renderer.getPixelRatio() !== pixelRatio) this.renderer.setPixelRatio(pixelRatio);
+			const needResize = canvas.width !== Math.floor(width * pixelRatio) || canvas.height !== Math.floor(height * pixelRatio);
 			if (needResize) {
 				this.setDimensions(new THREE.Vector2(this.container.clientWidth, this.container.clientHeight))
 			}
