@@ -365,7 +365,10 @@ class DiceBox {
 		
 		const maxwidth = Math.max(this.display.containerWidth, this.display.containerHeight);
 
-		if (this.light) this.scene.remove(this.light);
+		if (this.light) {
+			this.scene.remove(this.light);
+			this.light.dispose();
+		}
 		if (this.light_amb) this.scene.remove(this.light_amb);
 		this.light = new THREE.SpotLight(this.color_spotlight, this.light_intensity * Math.PI);
 		this.light.position.set(-maxwidth / 2, maxwidth / 2, maxwidth * 3);
@@ -390,7 +393,11 @@ class DiceBox {
 		this.scene.add(this.light_amb);
 		this.scene.environmentIntensity = this.light_intensity;
 
-		if (this.desk) this.scene.remove(this.desk);
+		if (this.desk) {
+			this.scene.remove(this.desk);
+			this.desk.geometry.dispose();
+			this.desk.material.dispose();
+		}
 		let shadowplane = new THREE.ShadowMaterial();
 		shadowplane.opacity = 0.5;
 		this.desk = new THREE.Mesh(new THREE.PlaneGeometry(this.display.containerWidth * 6, this.display.containerHeight * 6, 1, 1), shadowplane);
@@ -406,8 +413,9 @@ class DiceBox {
 			const width = this.container.clientWidth;
 			const height = this.container.clientHeight;
 			const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
-			if (this.renderer.getPixelRatio() !== pixelRatio) this.renderer.setPixelRatio(pixelRatio);
-			const needResize = canvas.width !== Math.floor(width * pixelRatio) || canvas.height !== Math.floor(height * pixelRatio);
+			const ratioChanged = this.renderer.getPixelRatio() !== pixelRatio;
+			if (ratioChanged) this.renderer.setPixelRatio(pixelRatio);
+			const needResize = ratioChanged || canvas.width !== Math.floor(width * pixelRatio) || canvas.height !== Math.floor(height * pixelRatio);
 			if (needResize) {
 				this.setDimensions(new THREE.Vector2(this.container.clientWidth, this.container.clientHeight))
 			}

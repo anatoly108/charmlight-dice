@@ -36,7 +36,9 @@ The user additionally authorized visual improvements during this upgrade:
 - `NeutralToneMapping` retains color while compressing bright highlights.
 - Opaque, depth-tested materials give overlapping dice correct occlusion.
 - Current filtered shadows use a softer radius and desktop/mobile map budgets.
-- Device pixel ratio is capped at 2, with density-aware resize checks.
+- Device pixel ratio is capped at 2, with density-aware resize checks. Density-only
+  changes redraw settled dice; replaced shadow targets and table geometry/materials
+  are disposed during resize.
 - The original theme colors, texture assets, physics and result handling remain.
 
 ## Verification
