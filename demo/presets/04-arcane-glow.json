@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "name": "Arcane Glow",
+  "description": "Night-sky die with numbers that glow ice blue.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#dfeaff",
+    "fill_color": "#eef3ff",
+    "rim_color": "#ffffff",
+    "rim_intensity": 0.5,
+    "fill_intensity": 0.7,
+    "material_tuning": {
+      "glow": 1.6,
+      "glow_color": "#8fe9ff",
+      "clearcoat": 0.8,
+      "clearcoat_roughness": 0.2
+    },
+    "theme_customColorset": {
+      "name": "Arcane Glow",
+      "background": "#171628",
+      "foreground": "#8fe9ff",
+      "outline": "#08080e",
+      "texture": "stars",
+      "material": "plastic"
+    }
+  }
+}

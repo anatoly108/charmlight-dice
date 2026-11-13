@@ -1,6 +1,18 @@
 export const MATERIALTYPES = {
   'none': {
-    name: 'Plastic'
+    name: 'Phong plastic'
+  },
+  // PBR plastic: same lighting model as metal, wood and glass, so it picks
+  // up the studio reflections. 'none' above keeps the original simpler look.
+  // The studio environment lights a matte surface evenly from all sides, which
+  // drowns the key light and its shadows. Plastic takes less of it, and a
+  // brighter base keeps the lit faces as bright as before.
+  'plastic': {
+    name: 'PBR plastic',
+    color: 0xffffff,
+    roughness: 0.35,
+    metalness: 0.0,
+    envMapIntensity: 0.4
   },
   'perfectmetal': {
     name: 'Perfect Metal',

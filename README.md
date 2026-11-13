@@ -59,7 +59,7 @@ const defaultConfig = {
 	theme_customColorset: null,
 	theme_colorset: "white", // see available colorsets in https://github.com/3d-dice/dice-box-threejs/blob/main/src/const/colorsets.js
 	theme_texture: "", // see available textures in https://github.com/3d-dice/dice-box-threejs/blob/main/src/const/texturelist.js
-	theme_material: "glass", // "none" | "metal" | "wood" | "glass" | "plastic"
+	theme_material: "glass", // "none" (Phong plastic) | "plastic" (PBR plastic) | "metal" | "wood" | "glass"
 	gravity_multiplier: 400,
 	light_intensity: 0.7,
 	light_direction: { azimuth: 315, elevation: 58 }, // degrees, see "Light and shadows"
@@ -67,6 +67,14 @@ const defaultConfig = {
 	shadow_color: 0x000000,
 	shadow_softness: 1, // size of the light source: 0 = hard edges, 2 = very soft
 	shadow_quality: "auto", // "auto" | "low" | "medium" | "high"
+	edge_roundness: 1, // 0 = hard bevelled edges, 1 = soft, 2 = softer and wider
+	material_tuning: {}, // see "Material tuning"
+	fill_intensity: 1, // soft light from all around: 0 = deep shadows on the dice, 2 = flat
+	fill_color: 0xffffbb,
+	rim_intensity: 0, // light from behind the dice: 0 = off, 1 = as strong as the main light
+	rim_color: 0xdfe8ff,
+	reflections_follow_light: true, // studio reflections turn with the main light
+	normal_maps: true, // relief from normal maps; false = the older bump maps
 	baseScale: 100,
 	strength: 1, // toss strength of dice
 	onRollComplete: () => {}
@@ -91,6 +99,55 @@ Shadows behave like those of a real lamp: dark and sharp where a die touches the
 `shadow_quality` sets how many lights form the soft key light: `low` = 1, `medium` = 3, `high` = 5. `auto` uses `medium` on small screens and `high` elsewhere. Use `low` if a device struggles.
 
 `npx vite . --port 5199` then `http://localhost:5199/demo/index.html` opens a playground with sliders for all of this.
+
+The playground also has:
+- **Random**: a new look from a recipe that is known to work, with its knobs varied inside the range where it looks good. The recipes are in `demo/random.js`.
+- **Preset**: 31 saved looks from `demo/presets/`, one JSON file each, in the same format Export writes.
+
+The playground's **Export** button saves the current look as `dice-settings.json`; **Import** loads one back. The `options` part of that file is exactly what `new DiceBox(selector, options)` and `updateConfig(options)` take, so you can paste it into your app.
+
+## Edges and plastic
+- `edge_roundness` softens the edges and corners of every die. It only changes how light falls on the existing bevel, so it costs nothing extra to draw. Physics and results are untouched. A change applies to dice thrown afterwards.
+- There are two plastics:
+  - `"none"` is **Phong plastic**. It uses a simple, older lighting model with a big soft sheen and deep contrast. It does not reflect the studio. Cheapest to draw.
+  - `"plastic"` is **PBR plastic** (physically based rendering). It uses the same model as metal, wood and glass and picks up the studio reflections. It looks flatter and more matte.
+
+## Material tuning
+`material_tuning` fine-tunes how the dice surface answers the light. Every key is optional; leave one out to keep the material's own value. Changes apply at once, also to dice already on the table.
+```
+await Box.updateConfig({ material_tuning: { sheen: 0.5, texture_depth: 2 } })
+```
+
+| Key | Works on | What it does |
+| --- | --- | --- |
+| `brightness` | every material | Multiplies the base colour. 1 = unchanged. |
+| `texture_depth` | every material | Multiplies the relief strength. 0 = smooth, 1 = unchanged. |
+| `glow` | every material | How strongly the numbers emit their own light. 0 = off. |
+| `glow_color` | every material | Colour of that light. Default: the number colour. |
+| `sheen` | Phong plastic | Strength of the soft white sheen. 0 = none, 1 = full. |
+| `sheen_tightness` | Phong plastic | 5 = wide and soft (default), 60 = a small sharp highlight. |
+| `roughness` | PBR materials | 0 = mirror-smooth, 1 = fully matte. |
+| `metalness` | PBR materials | 0 = plastic-like, 1 = metal. |
+| `reflections` | PBR materials | Share of the studio environment the die takes. 0 = none, 1 = all of it. |
+| `clearcoat` | PBR materials | Glossy lacquer layer over the colour. 0 = none, 1 = full. |
+| `clearcoat_roughness` | PBR materials | 0 = glass-smooth lacquer, 1 = satin. |
+| `iridescence` | PBR materials | Pearly colour shift as the die turns. 0 = none, 1 = full. |
+| `iridescence_thickness` | PBR materials | Film thickness in nanometres, 100 to 900. It picks the colours. Default 400. |
+| `anisotropy` | PBR materials | Stretches highlights along a grain, as on brushed metal. Pair it with the `brushed` texture. |
+| `anisotropy_angle` | PBR materials | Direction of that grain on each face, in degrees. |
+
+PBR materials are `"plastic"`, `"metal"`, `"glass"` and `"wood"`. Their own values are in `src/const/materialtypes.js`.
+
+`fill_intensity` is a lighting option, not a material one: it scales the soft light from all around. Lower it for deeper shadows on the dice without dimming the main light.
+
+## Light colour and rim light
+- `color_spotlight` is the colour of the main light. A warm tone (`0xffd9a8`) reads as lamp light, a cool one (`0xd8e6ff`) as daylight.
+- `fill_color` is the colour of the soft light from all around. A cool fill under a warm main light gives depth.
+- `rim_intensity` turns on a light from behind the dice, low and opposite the main light. It draws a bright line along their far edges and lifts them off the table. It casts no shadow. `rim_color` sets its colour.
+
+## Reflections and relief
+- `reflections_follow_light` turns the studio room so its brightest side sits where the main light is. Reflections then come from the same side as the light that casts the shadows. Set it to `false` to keep the room fixed.
+- `normal_maps` draws the surface relief (texture bumps and engraved numbers) from normal maps. They are made in the browser from each texture's height image when a die is first created, so they need no extra files. They stay crisper and steadier than bump maps when a die is small or seen at an angle. A change applies to dice thrown afterwards.
 
 ## Getting Results
 ### There are three ways to get results

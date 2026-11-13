@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "Rose Gold",
+  "description": "Warm pink metal, softly brushed.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#fff1dc",
+    "fill_color": "#ffe9c4",
+    "rim_color": "#ffd0a0",
+    "rim_intensity": 0.3,
+    "material_tuning": {
+      "roughness": 0.3,
+      "anisotropy": 0.3
+    },
+    "theme_customColorset": {
+      "name": "Rose Gold",
+      "background": "#c98a7a",
+      "foreground": "#fff1e6",
+      "outline": "#46302b",
+      "texture": "none",
+      "material": "metal"
+    }
+  }
+}

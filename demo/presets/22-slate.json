@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "Slate",
+  "description": "Grey slate with strong relief.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#dfeaff",
+    "fill_color": "#eef3ff",
+    "rim_color": "#ffffff",
+    "rim_intensity": 0.4,
+    "material_tuning": {
+      "sheen": 0.5,
+      "texture_depth": 2
+    },
+    "theme_customColorset": {
+      "name": "Slate",
+      "background": "#4a4f58",
+      "foreground": "#e6e6e6",
+      "outline": "#1a1c1f",
+      "texture": "stone",
+      "material": "none"
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "name": "Obsidian",
+  "description": "Black volcanic glass with a hard, sharp shine.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#dfeaff",
+    "fill_color": "#eef3ff",
+    "rim_color": "#ffffff",
+    "rim_intensity": 0.6,
+    "material_tuning": {
+      "roughness": 0.2,
+      "reflections": 0.3,
+      "clearcoat": 1,
+      "clearcoat_roughness": 0.05
+    },
+    "theme_customColorset": {
+      "name": "Obsidian",
+      "background": "#111114",
+      "foreground": "#d9d9e6",
+      "outline": "#060607",
+      "texture": "none",
+      "material": "plastic"
+    }
+  }
+}

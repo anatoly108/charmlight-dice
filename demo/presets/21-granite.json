@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "Granite",
+  "description": "Pale speckled granite, matte.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#fff1dc",
+    "fill_color": "#ffe9c4",
+    "rim_color": "#ffd0a0",
+    "fill_intensity": 0.8,
+    "material_tuning": {
+      "sheen": 0.35,
+      "texture_depth": 1.1,
+      "brightness": 1.6
+    },
+    "theme_customColorset": {
+      "name": "Granite",
+      "background": "#fff8e6",
+      "foreground": "#1c1814",
+      "outline": "#595750",
+      "texture": "stone",
+      "material": "none"
+    }
+  }
+}

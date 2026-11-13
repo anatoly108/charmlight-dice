@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "Gunmetal",
+  "description": "Dark steel with numbers that glow pale blue.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#dfeaff",
+    "fill_color": "#eef3ff",
+    "rim_color": "#ffffff",
+    "rim_intensity": 0.5,
+    "material_tuning": {
+      "roughness": 0.4,
+      "glow": 0.8,
+      "glow_color": "#9fd4ff"
+    },
+    "theme_customColorset": {
+      "name": "Gunmetal",
+      "background": "#3c4048",
+      "foreground": "#9fd4ff",
+      "outline": "#151619",
+      "texture": "metal",
+      "material": "metal"
+    }
+  }
+}

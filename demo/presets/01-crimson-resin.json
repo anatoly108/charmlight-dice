@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "name": "Crimson Resin",
+  "description": "Polished red resin with a flame pattern under the lacquer.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 45
+    },
+    "rim_intensity": 0.6,
+    "material_tuning": {
+      "clearcoat": 1,
+      "clearcoat_roughness": 0.15
+    },
+    "theme_customColorset": {
+      "name": "Crimson Resin",
+      "background": "#8c2026",
+      "foreground": "#ffe2a3",
+      "outline": "#310b0d",
+      "texture": "fire",
+      "material": "plastic"
+    }
+  }
+}

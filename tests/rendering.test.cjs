@@ -2,8 +2,8 @@ const assert = require('node:assert/strict');
 const { before, test } = require('node:test');
 const { loadDice } = require('./helpers/load-dice.cjs');
 
-let DiceBox, DiceFactory, THREE;
-before(async () => { ({ DiceBox, DiceFactory, THREE } = await loadDice()); });
+let DiceBox, DiceFactory, THREE, TEXTURELIST, COLORSETS, MATERIALTYPES, randomLook;
+before(async () => { ({ DiceBox, DiceFactory, THREE, TEXTURELIST, COLORSETS, MATERIALTYPES, randomLook } = await loadDice()); });
 
 // Drawing is a browser responsibility; these checks exercise the actual
 // generated textures/materials and scene lighting with a minimal canvas boundary.
@@ -266,4 +266,289 @@ test('the installed package ships the source, types, assets and nothing else', (
     assert.ok(packed.includes(needed), `${needed} must be in the package`);
   }
   assert.deepEqual(packed.filter(path => /^(tests|demo|docs|dist|\.claude|\.github)\//.test(path)), []);
+});
+
+const d20Triangles = edgeRoundness => {
+  const factory = new DiceFactory({ baseScale: 100, edgeRoundness });
+  factory.applyColorSet({
+    id: `round-${edgeRoundness}`, foreground: '#f4d899', background: '#48364e', outline: '#181220',
+    texture: { name: 'none', material: 'none' },
+  });
+  const mesh = factory.create('d20');
+  const { position, normal } = mesh.geometry.attributes;
+  const triangles = mesh.geometry.groups.map(group => ({
+    bevel: group.materialIndex === 0,
+    points: [0, 1, 2].map(i => new THREE.Vector3().fromBufferAttribute(position, group.start + i)),
+    normals: [0, 1, 2].map(i => new THREE.Vector3().fromBufferAttribute(normal, group.start + i)),
+  }));
+  return { mesh, triangles };
+};
+const isFlat = triangle => triangle.normals.every(normal => normal.distanceTo(triangle.normals[0]) < 1e-6);
+
+test('rounded edges shade bevels as curves and keep numbered faces flat', () => {
+  const sharp = d20Triangles(0), round = d20Triangles(1);
+  assert.equal(sharp.triangles.length, round.triangles.length, 'rounding must not add triangles');
+  assert.ok(sharp.triangles.every(isFlat), 'roundness 0 keeps the original hard bevel');
+  assert.equal(sharp.mesh.material[1].flatShading, true);
+
+  const faces = round.triangles.filter(triangle => !triangle.bevel);
+  const bevels = round.triangles.filter(triangle => triangle.bevel);
+  assert.equal(faces.length, 20);
+  assert.ok(faces.every(isFlat), 'numbers must sit on flat faces');
+  assert.ok(bevels.length > 0 && bevels.every(triangle => !isFlat(triangle)), 'every bevel must blend between faces');
+  assert.equal(round.mesh.material[1].flatShading, false, 'flat shading would ignore the rounding');
+
+  // Each bevel corner borrows the normal of the numbered face it touches.
+  const faceNormalAt = point => faces.find(face => face.points.some(corner => corner.distanceTo(point) < 1e-3)).normals[0];
+  for (const bevel of bevels) {
+    bevel.points.forEach((point, index) => assert.ok(bevel.normals[index].distanceTo(faceNormalAt(point)) < 1e-6));
+  }
+
+  const faceSize = triangles => triangles.find(triangle => !triangle.bevel).points[0].distanceTo(triangles.find(triangle => !triangle.bevel).points[1]);
+  assert.ok(faceSize(round.triangles) < faceSize(sharp.triangles), 'a rounder edge is a wider bevel');
+});
+
+test('edge roundness changes at runtime and studio plastic uses the modern material', async () => {
+  const box = makeBox();
+  assert.equal(box.DiceFactory.edgeRoundness, 1);
+  await box.updateConfig({ edge_roundness: 0 });
+  assert.equal(box.DiceFactory.edgeRoundness, 0);
+
+  const factory = new DiceFactory({ baseScale: 100 });
+  factory.applyColorSet({
+    id: 'studio-plastic', foreground: '#f4d899', background: '#48364e', outline: '#181220',
+    texture: { name: 'none', material: 'plastic' },
+  });
+  const material = factory.create('d20').material[1];
+  assert.equal(material.isMeshStandardMaterial, true);
+  assert.equal(material.metalness, 0);
+  assert.ok(material.roughness > 0.2 && material.roughness < 0.5);
+});
+
+test('matte plastic takes a smaller share of the environment so the key light models it', () => {
+  const environment = new THREE.Texture();
+  const share = name => {
+    const box = makeBox({ light_intensity: 0.8 });
+    box.scene.environment = environment;
+    box.setupLighting();
+    box.DiceFactory.applyColorSet({
+      id: `share-${name}`, foreground: '#f4d899', background: '#48364e', outline: '#181220',
+      texture: { name: 'none', material: name },
+    });
+    const die = box.DiceFactory.create('d20');
+    box.diceList.push(die);
+    assert.equal(die.material[1].envMap, environment, 'dice must reflect the studio environment');
+    const before = die.material[1].envMapIntensity;
+    box.updateConfig({ light_intensity: 0.4 });
+    assert.ok(Math.abs(die.material[1].envMapIntensity - before / 2) < 1e-9, 'light intensity scales reflections on existing dice');
+    return before;
+  };
+  const metal = share('metal'), plastic = share('plastic');
+  assert.ok(Math.abs(metal - 0.8) < 1e-9, 'metal keeps the full environment');
+  assert.ok(plastic < metal / 2, 'plastic must not be flooded by the environment');
+});
+
+test('every listed texture has its image files and every colorset names a listed texture', () => {
+  const { existsSync } = require('node:fs');
+  const { resolve } = require('node:path');
+  const missing = [];
+  for (const [key, texture] of Object.entries(TEXTURELIST)) {
+    for (const file of [texture.source, texture.source_bump]) {
+      if (file && !existsSync(resolve(__dirname, '../public', file))) missing.push(`${key}: ${file}`);
+    }
+  }
+  assert.deepEqual(missing, [], 'a listed texture must not point at a missing image');
+  assert.equal(Object.values(TEXTURELIST).filter(texture => texture.source).length, 30);
+
+  const unknown = [];
+  for (const [key, colorset] of Object.entries(COLORSETS)) {
+    for (const name of [].concat(colorset.texture ?? [])) {
+      if (typeof name === 'string' && !(name in TEXTURELIST)) unknown.push(`${key}: ${name}`);
+    }
+  }
+  assert.deepEqual(unknown, [], 'a colorset must not name a texture that is not listed');
+});
+
+test('material tuning adjusts each knob live and lets go of it again', async () => {
+  const dieOf = (box, material) => {
+    box.DiceFactory.applyColorSet({
+      id: `tuning-${material}`, foreground: '#f4d899', background: '#48364e', outline: '#181220',
+      texture: { name: 'none', material },
+    });
+    const die = box.DiceFactory.create('d20');
+    box.diceList.push(die);
+    return die.material[1];
+  };
+
+  // Phong plastic: sheen, tightness, brightness and texture depth.
+  const box = makeBox({ material_tuning: { sheen: 0.5 } });
+  const phong = dieOf(box, 'none');
+  assert.equal(phong.isMeshPhongMaterial, true);
+  assert.equal(phong.specular.r, 0.5, 'tuning applies to new dice');
+  const colour = phong.color.r, bump = phong.bumpScale;
+  await box.updateConfig({ material_tuning: { sheen: 0.2, sheen_tightness: 30, brightness: 0.5, texture_depth: 2, roughness: 0.9 } });
+  assert.ok(Math.abs(phong.specular.g - 0.2) < 1e-9, 'tuning applies to dice on the table');
+  assert.equal(phong.shininess, 30);
+  assert.ok(Math.abs(phong.color.r - colour / 2) < 1e-9);
+  assert.equal(phong.bumpScale, bump * 2);
+  assert.ok(Math.abs(keyLight(box) - 0.7 * Math.PI) < 1e-9, 'the lights themselves must not change');
+  await box.updateConfig({ material_tuning: {} });
+  assert.deepEqual([phong.specular.r, phong.shininess, phong.color.r, phong.bumpScale], [1, 5, colour, bump],
+    'dropping a knob restores the material default');
+
+  // PBR plastic: roughness, metalness and reflections.
+  const pbrBox = makeBox();
+  pbrBox.scene.environment = new THREE.Texture();
+  pbrBox.setupLighting();
+  const pbr = dieOf(pbrBox, 'plastic');
+  const defaults = [pbr.roughness, pbr.metalness, pbr.envMapIntensity];
+  await pbrBox.updateConfig({ material_tuning: { roughness: 0.8, metalness: 0.5, reflections: 1, sheen: 0 } });
+  assert.deepEqual([pbr.roughness, pbr.metalness], [0.8, 0.5]);
+  assert.ok(Math.abs(pbr.envMapIntensity - 0.7) < 1e-9, 'reflections 1 takes the whole environment');
+  await pbrBox.updateConfig({ light_intensity: 0.35 });
+  assert.ok(Math.abs(pbr.envMapIntensity - 0.35) < 1e-9, 'tuned reflections still follow the light intensity');
+  await pbrBox.updateConfig({ light_intensity: 0.7, material_tuning: {} });
+  [pbr.roughness, pbr.metalness, pbr.envMapIntensity].forEach((value, index) => assert.ok(Math.abs(value - defaults[index]) < 1e-9));
+});
+
+test('fill intensity scales only the soft light from all around', async () => {
+  const box = makeBox();
+  const fill = box.light_amb.intensity, key = keyLight(box);
+  await box.updateConfig({ fill_intensity: 0.25 });
+  assert.ok(Math.abs(box.light_amb.intensity - fill / 4) < 1e-9);
+  assert.ok(Math.abs(keyLight(box) - key) < 1e-9, 'the main light must stay as bright');
+});
+
+test('rim light sits low and opposite the main light, casts no shadow and is off by default', async () => {
+  const box = makeBox({ light_direction: { azimuth: 90, elevation: 50 } });
+  assert.equal(box.light_rim, null);
+  await box.updateConfig({ rim_intensity: 0.5, rim_color: '#3366ff', fill_color: '#aaccff', color_spotlight: '#ffd9a8' });
+  const rim = box.light_rim, direction = rim.position.clone().normalize();
+  assert.ok(direction.x < -0.8 && Math.abs(direction.y) < 1e-6, 'the main light is on the right, so the rim comes from the left');
+  assert.ok(direction.z > 0.3 && direction.z < 0.5, 'the rim light stays low');
+  assert.equal(rim.castShadow, false);
+  assert.ok(Math.abs(rim.intensity - keyLight(box) / 2) < 1e-9, 'rim strength is relative to the main light');
+  assert.equal(rim.color.getHexString(), '3366ff');
+  assert.equal(box.light_amb.color.getHexString(), 'aaccff');
+  assert.equal(box.light.color.getHexString(), 'ffd9a8');
+  assert.equal(box.scene.children.filter(child => child === rim).length, 1);
+
+  box.setLightDirection({ azimuth: 0, elevation: 90 });
+  assert.ok(box.light_rim.position.z > 0, 'a light straight above still gets a rim');
+  assert.equal(box.scene.children.includes(rim), false, 'the replaced rim light must leave the scene');
+  await box.updateConfig({ rim_intensity: 0 });
+  assert.equal(box.light_rim, null);
+  assert.equal(box.scene.children.filter(child => child.isDirectionalLight).length, box.lights.length);
+});
+
+test('clear coat is a PBR-only layer that tunes live', async () => {
+  const box = makeBox();
+  box.DiceFactory.applyColorSet({
+    id: 'coat-test', foreground: '#f4d899', background: '#48364e', outline: '#181220',
+    texture: { name: 'none', material: 'plastic' },
+  });
+  const die = box.DiceFactory.create('d20');
+  box.diceList.push(die);
+  const material = die.material[1];
+  assert.equal(material.isMeshPhysicalMaterial, true);
+  assert.equal(material.clearcoat, 0, 'no coat unless asked for');
+  await box.updateConfig({ material_tuning: { clearcoat: 0.8, clearcoat_roughness: 0.2 } });
+  assert.deepEqual([material.clearcoat, material.clearcoatRoughness], [0.8, 0.2]);
+  await box.updateConfig({ material_tuning: {} });
+  assert.equal(material.clearcoat, 0);
+});
+
+test('studio reflections turn with the main light unless told to stay', async () => {
+  const turnOf = box => THREE.MathUtils.radToDeg(box.scene.environmentRotation.y);
+  const box = makeBox({ light_direction: { azimuth: 160, elevation: 50 } });
+  assert.ok(Math.abs(turnOf(box)) < 1e-6, 'the room is unturned when the light sits at its bright side');
+  assert.ok(Math.abs(box.scene.environmentRotation.x - Math.PI / 2) < 1e-9, 'the room stays upright on the Z-up board');
+  box.setLightDirection({ azimuth: 100, elevation: 50 });
+  assert.ok(Math.abs(turnOf(box) - 60) < 1e-6);
+  box.setLightDirection({ azimuth: 100, elevation: 20 });
+  assert.ok(Math.abs(turnOf(box) - 60) < 1e-6, 'only the compass direction matters');
+
+  box.scene.environment = new THREE.Texture();
+  box.setupLighting();
+  box.DiceFactory.applyColorSet({
+    id: 'follow-test', foreground: '#f4d899', background: '#48364e', outline: '#181220',
+    texture: { name: 'none', material: 'metal' },
+  });
+  const die = box.DiceFactory.create('d20');
+  box.diceList.push(die);
+  box.setLightDirection({ azimuth: 250, elevation: 50 });
+  const dieTurn = THREE.MathUtils.euclideanModulo(THREE.MathUtils.radToDeg(die.material[1].envMapRotation.y), 360);
+  assert.ok(Math.abs(dieTurn - 270) < 1e-6, 'dice on the table follow too');
+  await box.updateConfig({ reflections_follow_light: false });
+  assert.equal(box.scene.environmentRotation.y, 0);
+  assert.equal(die.material[1].envMapRotation.y, 0);
+});
+
+test('iridescence, brushed highlights and glow tune live and stay off by default', async () => {
+  const box = makeBox();
+  box.DiceFactory.applyColorSet({
+    id: 'layers-test', foreground: '#f4d899', background: '#48364e', outline: '#181220',
+    texture: { name: 'none', material: 'plastic' },
+  });
+  const die = box.DiceFactory.create('d20');
+  box.diceList.push(die);
+  const material = die.material[1];
+  assert.deepEqual([material.iridescence, material.anisotropy, material.emissiveIntensity > 0 && material.emissive.getHex() > 0], [0, 0, false]);
+
+  // Stand in for the glow mask a browser canvas would have produced.
+  material.userData.glowMap = new THREE.Texture();
+  await box.updateConfig({ material_tuning: {
+    iridescence: 0.8, iridescence_thickness: 600, anisotropy: 0.7, anisotropy_angle: 90, glow: 1.5, texture_depth: 2,
+  } });
+  assert.equal(material.iridescence, 0.8);
+  assert.equal(material.iridescenceThicknessMaximum, 600);
+  assert.equal(material.anisotropy, 0.7);
+  assert.ok(Math.abs(material.anisotropyRotation - Math.PI / 2) < 1e-9);
+  assert.equal(material.emissiveMap, material.userData.glowMap);
+  assert.equal(material.emissiveIntensity, 1.5);
+  assert.equal(material.emissive.getHexString(), 'f4d899', 'the glow takes the number colour by default');
+  assert.equal(material.normalScale.x, 2, 'texture depth also drives normal maps');
+
+  await box.updateConfig({ material_tuning: { glow: 1, glow_color: '#00ffcc' } });
+  assert.equal(material.emissive.getHexString(), '00ffcc');
+  await box.updateConfig({ material_tuning: {} });
+  assert.deepEqual([material.iridescence, material.anisotropy, material.emissiveMap, material.emissiveIntensity], [0, 0, null, 0]);
+});
+
+const TUNING_KEYS = ['brightness', 'texture_depth', 'glow', 'glow_color', 'sheen', 'sheen_tightness', 'roughness', 'metalness',
+  'reflections', 'clearcoat', 'clearcoat_roughness', 'iridescence', 'iridescence_thickness', 'anisotropy', 'anisotropy_angle'];
+const assertLook = (look, label) => {
+  const skin = look.options.theme_customColorset;
+  assert.ok(skin.material in MATERIALTYPES, `${label}: unknown material ${skin.material}`);
+  assert.ok(skin.texture in TEXTURELIST, `${label}: unknown texture ${skin.texture}`);
+  assert.ok(skin.name, `${label}: the library needs a colorset name`);
+  for (const colour of [skin.background, skin.foreground, skin.outline]) assert.match(colour, /^#[0-9a-f]{6}$/, label);
+  for (const key of Object.keys(look.options.material_tuning)) assert.ok(TUNING_KEYS.includes(key), `${label}: unknown tuning ${key}`);
+  const { azimuth, elevation } = look.options.light_direction;
+  assert.ok(azimuth >= 0 && azimuth <= 360 && elevation >= 15 && elevation <= 90, label);
+};
+
+test('saved presets are complete, valid and listed', () => {
+  const { readdirSync, readFileSync } = require('node:fs');
+  const { resolve } = require('node:path');
+  const folder = resolve(__dirname, '../demo/presets');
+  const index = JSON.parse(readFileSync(resolve(folder, 'index.json'), 'utf8'));
+  const files = readdirSync(folder).filter(file => file !== 'index.json').sort();
+  assert.deepEqual(index.map(entry => entry.file), files, 'the preset list must match the files');
+  assert.equal(files.length, 31);
+  for (const file of files) {
+    const preset = JSON.parse(readFileSync(resolve(folder, file), 'utf8'));
+    assert.ok(preset.name && preset.description, file);
+    assertLook(preset, file);
+  }
+});
+
+test('random looks always name real materials, textures and knobs', () => {
+  const materials = new Set();
+  for (let i = 0; i < 300; i++) {
+    const look = randomLook();
+    assertLook(look, `random look ${i}`);
+    materials.add(look.options.theme_customColorset.material);
+  }
+  assert.ok(materials.size >= 4, 'random looks must cover several materials');
 });

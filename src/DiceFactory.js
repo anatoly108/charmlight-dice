@@ -8,8 +8,88 @@ import * as CANNON from "cannon-es"
 
 const defaultConfig = {
 	baseScale: 100,
-	bumpMapping: true
+	bumpMapping: true,
+	edgeRoundness: 1,
+	normalMaps: true,
+	materialTuning: {}
 }
+// How steep a full black-to-white step in a height map becomes in its normal map.
+const NORMAL_STRENGTH = 1.8
+// Glow masks only carry soft lettering, so they can be small.
+const GLOW_SIZE = 256
+
+// Sends every drawing call and style to several canvases at once.
+function fanOut(...contexts) {
+	return new Proxy(contexts[0], {
+		get: (first, key) => typeof first[key] === 'function'
+			? (...args) => contexts.map(context => context[key](...args))[0]
+			: first[key],
+		set: (first, key, value) => { for (const context of contexts) context[key] = value; return true; },
+	});
+}
+
+// Turns a height map (white = high) into a tangent-space normal map. Unlike a
+// bump map, it is filtered like any texture, so the relief stays smooth and
+// stable when a die is small on screen or seen at a shallow angle.
+function makeNormalMap(heightCanvas) {
+	const context = heightCanvas.getContext("2d");
+	if (typeof context.getImageData !== 'function') return null;
+	const width = heightCanvas.width, height = heightCanvas.height;
+	const source = context.getImageData(0, 0, width, height).data;
+	const heights = new Float32Array(width * height);
+	for (let i = 0; i < heights.length; i++) {
+		heights[i] = (source[i * 4] * 0.299 + source[i * 4 + 1] * 0.587 + source[i * 4 + 2] * 0.114) / 255;
+	}
+	const at = (x, y) => heights[Math.min(height - 1, Math.max(0, y)) * width + Math.min(width - 1, Math.max(0, x))];
+	const canvas = document.createElement("canvas");
+	canvas.width = width;
+	canvas.height = height;
+	const target = canvas.getContext("2d");
+	const image = target.createImageData(width, height);
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			// Sobel slopes, smoothed across three rows and columns.
+			const dx = (at(x + 1, y - 1) + 2 * at(x + 1, y) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2 * at(x - 1, y) + at(x - 1, y + 1));
+			const dy = (at(x - 1, y + 1) + 2 * at(x, y + 1) + at(x + 1, y + 1)) - (at(x - 1, y - 1) + 2 * at(x, y - 1) + at(x + 1, y - 1));
+			// Canvas rows run down while texture space runs up, hence +dy.
+			const nx = -dx * NORMAL_STRENGTH, ny = dy * NORMAL_STRENGTH;
+			const length = Math.hypot(nx, ny, 1), i = (y * width + x) * 4;
+			image.data[i] = (nx / length * 0.5 + 0.5) * 255;
+			image.data[i + 1] = (ny / length * 0.5 + 0.5) * 255;
+			image.data[i + 2] = (1 / length * 0.5 + 0.5) * 255;
+			image.data[i + 3] = 255;
+		}
+	}
+	target.putImageData(image, 0, 0);
+	return new THREE.CanvasTexture(canvas);
+}
+
+// White lettering with a soft halo on black, from a canvas of black lettering
+// on white. Lit up through the material's emissive channel.
+function makeGlowMap(letteringCanvas) {
+	const canvas = document.createElement("canvas");
+	canvas.width = canvas.height = GLOW_SIZE;
+	const context = canvas.getContext("2d");
+	if (typeof context.drawImage !== 'function') return null;
+	context.drawImage(letteringCanvas, 0, 0, GLOW_SIZE, GLOW_SIZE);
+	context.globalCompositeOperation = 'difference';
+	context.fillStyle = '#FFFFFF';
+	context.fillRect(0, 0, GLOW_SIZE, GLOW_SIZE);
+	// Halo: add blurred copies, made by shrinking the lettering and scaling it back up.
+	context.globalCompositeOperation = 'lighter';
+	for (const [size, alpha] of [[GLOW_SIZE / 4, 0.45], [GLOW_SIZE / 10, 0.35]]) {
+		const small = document.createElement("canvas");
+		small.width = small.height = Math.round(size);
+		small.getContext("2d").drawImage(canvas, 0, 0, small.width, small.height);
+		context.globalAlpha = alpha;
+		context.drawImage(small, 0, 0, GLOW_SIZE, GLOW_SIZE);
+	}
+	const texture = new THREE.CanvasTexture(canvas);
+	texture.colorSpace = THREE.SRGBColorSpace;
+	return texture;
+}
+// How much wider the bevel gets per unit of edge roundness.
+const BEVEL_WIDEN = 0.8
 
 class DiceFactory {
 	static dice = {}
@@ -36,6 +116,8 @@ class DiceFactory {
 		};
 
 		Object.assign(this, defaultConfig, options)
+		this.setEdgeRoundness(this.edgeRoundness)
+		this.setMaterialTuning(this.materialTuning)
 	}
 
 	updateConfig(options = {}){
@@ -50,10 +132,103 @@ class DiceFactory {
 		for (const cached of Object.values(this.materials_cache)) {
 			if (cached?.composite?.dispose) cached.composite.dispose();
 			if (cached?.bump?.dispose) cached.bump.dispose();
+			if (cached?.normal?.dispose) cached.normal.dispose();
+			if (cached?.glow?.dispose) cached.glow.dispose();
 		}
 		this.materials_cache = {};
 		for (const geometry of Object.values(this.geometries)) geometry.dispose();
 		this.geometries = {};
+	}
+
+	// 0 keeps the original hard bevel. Above 0 the bevel is shaded as a curve
+	// and widens with the value. Takes effect for dice created afterwards.
+	setEdgeRoundness(edgeRoundness) {
+		this.edgeRoundness = Math.max(0, Number(edgeRoundness) || 0);
+		// Flat shading ignores the geometry's normals, which carry the rounding.
+		this.material_options.flatShading = this.edgeRoundness === 0;
+		for (const geometry of Object.values(this.geometries)) geometry.dispose();
+		this.geometries = {};
+	}
+
+	// The studio environment the dice reflect. Each material type takes its own
+	// share of it (envMapIntensity in MATERIALTYPES).
+	setEnvironment(texture, rotation, intensity) {
+		this.environment = { texture, rotation, intensity };
+	}
+
+	applyEnvironment(material) {
+		if (!this.environment || !material.isMeshStandardMaterial) return;
+		material.envMap = this.environment.texture;
+		if (this.environment.rotation) material.envMapRotation.copy(this.environment.rotation);
+		material.envMapIntensity = (material.userData.environmentShare ?? 1) * this.environment.intensity;
+	}
+
+	// Fine-tunes how the dice surface answers the light. Every key is optional;
+	// a missing key keeps the material's own value.
+	//   brightness, texture_depth,
+	//   glow, glow_color                       every material
+	//   sheen, sheen_tightness                 Phong plastic ("none")
+	//   roughness, metalness, reflections,
+	//   clearcoat, clearcoat_roughness,
+	//   iridescence, iridescence_thickness,
+	//   anisotropy, anisotropy_angle           PBR materials
+	setMaterialTuning(materialTuning) {
+		this.materialTuning = { ...(materialTuning || {}) };
+	}
+
+	applyMaterialTuning(material) {
+		const number = (key, fallback) => {
+			const value = this.materialTuning[key];
+			return value === undefined || value === null || !Number.isFinite(Number(value)) ? fallback : Math.max(0, Number(value));
+		};
+		// Remember what the material type asked for, so a knob can be let go of.
+		const base = material.userData.base ??= {
+			color: material.color.clone(),
+			bumpScale: material.bumpScale,
+			shininess: material.shininess,
+			roughness: material.roughness,
+			metalness: material.metalness,
+			reflections: material.userData.environmentShare ?? 1,
+			clearcoat: material.clearcoat,
+			clearcoatRoughness: material.clearcoatRoughness,
+			iridescence: material.iridescence,
+			anisotropy: material.anisotropy,
+		};
+		material.color.copy(base.color).multiplyScalar(number('brightness', 1));
+		material.bumpScale = base.bumpScale * number('texture_depth', 1);
+		material.normalScale.setScalar(number('texture_depth', 1));
+
+		// Glowing numbers: the lettering emits light of its own.
+		const glow = number('glow', 0), glowMap = glow > 0 ? material.userData.glowMap || null : null;
+		if (material.userData.glowMap) {
+			if (material.emissiveMap !== glowMap) {
+				material.emissiveMap = glowMap;
+				material.needsUpdate = true;
+			}
+			material.emissive.set(glowMap ? this.materialTuning.glow_color || material.userData.labelColor || '#ffffff' : 0x000000);
+			material.emissiveIntensity = glow;
+		}
+		if (material.isMeshPhongMaterial) {
+			material.specular.setScalar(number('sheen', 1));
+			material.shininess = number('sheen_tightness', base.shininess);
+		}
+		if (material.isMeshStandardMaterial) {
+			material.roughness = Math.min(1, number('roughness', base.roughness));
+			material.metalness = Math.min(1, number('metalness', base.metalness));
+			material.userData.environmentShare = number('reflections', base.reflections);
+			if (material.isMeshPhysicalMaterial) {
+				material.clearcoat = Math.min(1, number('clearcoat', base.clearcoat));
+				material.clearcoatRoughness = Math.min(1, number('clearcoat_roughness', base.clearcoatRoughness));
+				// Thin-film colour shift, like a pearl or a soap bubble.
+				material.iridescence = Math.min(1, number('iridescence', base.iridescence));
+				material.iridescenceThicknessMinimum = 100;
+				material.iridescenceThicknessMaximum = Math.max(100, number('iridescence_thickness', 400));
+				// Stretched highlights along a grain, as on brushed metal.
+				material.anisotropy = Math.min(1, number('anisotropy', base.anisotropy));
+				material.anisotropyRotation = THREE.MathUtils.degToRad(number('anisotropy_angle', 0));
+			}
+			this.applyEnvironment(material);
+		}
 	}
 
 	setBumpMapping(bumpMapping){
@@ -212,7 +387,11 @@ class DiceFactory {
 		for (var i = 0; i < labels.length; ++i) {
 			var mat;
 			if (this.dice_material != 'none') {
-				mat = new THREE.MeshStandardMaterial(MATERIALTYPES[this.dice_material]);
+				// The physical material is the standard one plus optional layers such as
+				// a clear coat. Layers left at 0 cost nothing.
+				mat = new THREE.MeshPhysicalMaterial(MATERIALTYPES[this.dice_material]);
+				mat.userData.environmentShare = MATERIALTYPES[this.dice_material].envMapIntensity ?? 1;
+				this.applyEnvironment(mat);
 			} else {
 				mat = new THREE.MeshPhongMaterial(this.material_options);
 			}
@@ -247,7 +426,13 @@ class DiceFactory {
 					if (canvasTextures.bump) {
 						mat.bumpMap = canvasTextures.bump;
 					}
+					if (canvasTextures.normal) {
+						// A normal map replaces the bump map made from the same heights.
+						mat.normalMap = canvasTextures.normal;
+						mat.bumpMap = null;
+					}
 					if (diceobj.shape != 'd4' && diceobj.normals[i]) {
+						mat.normalMap = null;
 						mat.bumpMap = new THREE.Texture(diceobj.normals[i]);
 						mat.bumpScale = 4;
 						mat.bumpMap.needsUpdate = true;
@@ -258,6 +443,11 @@ class DiceFactory {
 			mat.transparent = false;
 			mat.depthTest = true;
 			mat.needUpdate = true;
+			if (i > 0) {
+				mat.userData.glowMap = canvasTextures.glow;
+				mat.userData.labelColor = this.label_color_rand;
+			}
+			this.applyMaterialTuning(mat);
 			materials.push(mat);
 		}
 		//Edge mat
@@ -290,6 +480,7 @@ class DiceFactory {
 		if (diceobj.shape == 'd4') {
 			cachestring = diceobj.type + textCache + texture.name + forecolor + outlinecolor + backcolor;
 		}
+		if (this.normalMaps) cachestring += 'normal';
 		if (allowcache && this.materials_cache[cachestring] != null) {
 			this.cache_hits++;
 			return this.materials_cache[cachestring];
@@ -337,6 +528,14 @@ class DiceFactory {
 		} else {
 			context.globalCompositeOperation = 'source-over';
 		}
+
+		// The glow mask gets the same lettering as the bump canvas, without the texture.
+		let canvasGlow = document.createElement("canvas");
+		canvasGlow.width = canvasGlow.height = ts;
+		let contextGlow = canvasGlow.getContext("2d", {alpha: true});
+		contextGlow.fillStyle = "#FFFFFF";
+		contextGlow.fillRect(0, 0, ts, ts);
+		contextBump = fanOut(contextBump, contextGlow);
 
 		// create text
 		context.globalCompositeOperation = 'source-over';
@@ -503,20 +702,23 @@ class DiceFactory {
 
 		var compositetexture = new THREE.CanvasTexture(canvas);
 		compositetexture.colorSpace = THREE.SRGBColorSpace;
-		var bumpMap;
+		var bumpMap, normalMap = null, glowMap = null;
 		if (!isTexture) {
 			bumpMap = new THREE.CanvasTexture(canvasBump);
+			if (this.normalMaps) normalMap = makeNormalMap(canvasBump);
+			glowMap = makeGlowMap(canvasGlow);
 		} else {
 			bumpMap = null;
 		}
+		const textures = {composite:compositetexture,bump:bumpMap,normal:normalMap,glow:glowMap};
 
 		if (allowcache) {
 			// cache new texture
 			this.cache_misses++;
-			this.materials_cache[cachestring] = {composite:compositetexture,bump:bumpMap};
+			this.materials_cache[cachestring] = textures;
 		}
 
-		return {composite:compositetexture,bump:bumpMap};
+		return textures;
 	}
 
 	applyColorSet(colordata) {
@@ -702,6 +904,7 @@ class DiceFactory {
 		for (let i = 0; i < vertices.length; ++i) {
 				vertices[i] = vertices[i].multiplyScalar(radius);
 		}
+		const bevelNormals = this.edgeRoundness > 0 ? this.face_normals(vertices, faces) : null;
 
 		let positions = [];
 		const normals = [];
@@ -730,9 +933,12 @@ class DiceFactory {
 						cb.normalize();
 
 						// Vertex Normals
-						normals.push(...cb.toArray());
-						normals.push(...cb.toArray());
-						normals.push(...cb.toArray());
+						// Bevels borrow the normals of the faces they join, so light rolls
+						// over the edge as if it were round.
+						const rounded = bevelNormals && ii[fl] === -1;
+						normals.push(...(rounded ? bevelNormals[ii[0]] : cb).toArray());
+						normals.push(...(rounded ? bevelNormals[ii[j + 1]] : cb).toArray());
+						normals.push(...(rounded ? bevelNormals[ii[j + 2]] : cb).toArray());
 
 						//UVs
 						uvs.push((Math.cos(af) + 1 + tab) / 2 / (1 + tab), (Math.sin(af) + 1 + tab) / 2 / (1 + tab));
@@ -758,12 +964,29 @@ class DiceFactory {
 		return geom;
 	}
 
+	// The normal of the numbered face each vertex belongs to. After chamfering,
+	// every vertex sits on exactly one numbered face.
+	face_normals(vertices, faces) {
+		const normals = new Array(vertices.length);
+		const cb = new THREE.Vector3(), ab = new THREE.Vector3();
+		for (const face of faces) {
+			const fl = face.length - 1;
+			if (face[fl] === -1) continue;
+			cb.subVectors(vertices[face[2]], vertices[face[1]]);
+			ab.subVectors(vertices[face[0]], vertices[face[1]]);
+			const normal = cb.clone().cross(ab).normalize();
+			for (let j = 0; j < fl; ++j) normals[face[j]] = normal;
+		}
+		return normals;
+	}
+
 	make_d10_geom(vertices, faces, radius, tab, af) {
 		let geom = new THREE.BufferGeometry();
 
 		for (let i = 0; i < vertices.length; ++i) {
 				vertices[i] = vertices[i].multiplyScalar(radius);
 		}
+		const bevelNormals = this.edgeRoundness > 0 ? this.face_normals(vertices, faces) : null;
 
 		let positions = [];
 		const normals = [];
@@ -797,9 +1020,12 @@ class DiceFactory {
 				cb.normalize();
 
 				// Vertex Normals
-				normals.push(...cb.toArray());
-				normals.push(...cb.toArray());
-				normals.push(...cb.toArray());
+				// Bevels borrow the normals of the faces they join, so light rolls
+				// over the edge as if it were round.
+				const rounded = bevelNormals && ii[fl] === -1;
+				normals.push(...(rounded ? bevelNormals[ii[0]] : cb).toArray());
+				normals.push(...(rounded ? bevelNormals[ii[j + 1]] : cb).toArray());
+				normals.push(...(rounded ? bevelNormals[ii[j + 2]] : cb).toArray());
 
 				//UVs
 				if(faces[i][faces[i].length-1] == -1 || j >= 2){
@@ -901,6 +1127,8 @@ class DiceFactory {
 		for (var i = 0; i < vertices.length; ++i) {
 			vectors[i] = (new THREE.Vector3).fromArray(vertices[i]).normalize();
 		}
+		// A rounder edge is also a wider one.
+		chamfer = 1 - (1 - chamfer) * (1 + Math.max(0, this.edgeRoundness) * BEVEL_WIDEN);
 		var cg = this.chamfer_geom(vectors, faces, chamfer);
 		if(faces.length != 10) {
 			var geom = this.make_geom(cg.vectors, cg.faces, radius, tab, af);
