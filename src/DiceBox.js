@@ -852,15 +852,17 @@ class DiceBox {
 		let time = Date.now();
 		this.last_time = this.last_time || time - (this.framerate*1000);
 		let time_diff = (time - this.last_time) / 1000;
-		++this.iteration;
 		let neededSteps = Math.floor(time_diff / this.framerate);
 
 		// this.container.style.opacity = '1';
 
 		for(let i = 0; i < neededSteps; i++) {
+			++this.iteration;
 			this.world.step(this.framerate);
-			// this.cannonDebugger.update()
 			++this.steps;
+			// Match simulateThrow() at every fixed physics step. A slow display
+			// frame must not change sleep transitions or run beyond its result.
+			if (this.throwFinished()) break;
 		}
 
 		// update physics interactions visually
