@@ -25,6 +25,14 @@ const defaultConfig = {
 	theme_material: "glass",
 	gravity_multiplier: 400,
 	light_intensity: 0.7,
+	// Where the key light sits. Degrees: azimuth 0 = top of the screen, 90 = right
+	// (clockwise); elevation 90 = straight above. Also accepts a {x, y, z} vector
+	// pointing from the table towards the light.
+	light_direction: { azimuth: 315, elevation: 58 },
+	shadow_opacity: 0.5,
+	shadow_color: 0x000000,
+	shadow_softness: 1, // size of the light source: 0 = hard edges, 2 = very soft
+	shadow_quality: "auto", // "auto" | "low" | "medium" | "high"
 	baseScale: 100,
 	strength: 1,
 	iterationLimit: 1000,
@@ -32,6 +40,73 @@ const defaultConfig = {
 	onRerollComplete: () => {},
 	onAddDiceComplete: () => {},
 	onRemoveDiceComplete: () => {},
+}
+
+const SHADOW_QUALITY = {
+	low: { lights: 1, mapSize: 1024 },
+	medium: { lights: 3, mapSize: 1024 },
+	high: { lights: 5, mapSize: 2048 },
+}
+const LIGHT_KEYS = ['light_direction', 'light_intensity', 'color_spotlight', 'shadow_opacity', 'shadow_color', 'shadow_softness', 'shadow_quality']
+const MIN_LIGHT_ELEVATION = THREE.MathUtils.degToRad(15)
+// Half the angle the softbox covers in the sky at shadow_softness 1.
+const SOFTBOX_ANGLE = 4
+// Rough height of a resting die, used to size the shadow blur.
+const DIE_HEIGHT = 150
+
+let contactShadowTexture, contactShadowGeometry
+
+// Evenly spread points on a unit disk (sunflower pattern), first one centered.
+function softboxSample(index, count) {
+	if (count === 1) return { x: 0, y: 0 }
+	const radius = Math.sqrt(index / (count - 1)), angle = index * 2.399963229728653
+	return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius }
+}
+
+function makeContactShadowTexture() {
+	const size = 64, data = new Uint8Array(size * size * 4)
+	for (let y = 0; y < size; y++) {
+		for (let x = 0; x < size; x++) {
+			const distance = Math.min(1, Math.hypot(x + 0.5 - size / 2, y + 0.5 - size / 2) / (size / 2))
+			const falloff = (1 - distance * distance) ** 2
+			data.set([255, 255, 255, Math.round(falloff * 255)], (y * size + x) * 4)
+		}
+	}
+	const texture = new THREE.DataTexture(data, size, size)
+	texture.magFilter = THREE.LinearFilter
+	texture.minFilter = THREE.LinearFilter
+	texture.needsUpdate = true
+	return texture
+}
+
+// The stock shadow material multiplies the shadows of all lights, so a spot
+// hidden from a single light of the cluster would go fully dark. Average them
+// instead: darkness is the share of the softbox that is blocked.
+function makeTableShadowMaterial() {
+	const material = new THREE.ShadowMaterial()
+	material.onBeforeCompile = shader => {
+		shader.fragmentShader = shader.fragmentShader.replace('#include <shadowmask_pars_fragment>', `
+			float getShadowMask() {
+				float shadow = 1.0;
+				#ifdef USE_SHADOWMAP
+				#if NUM_DIR_LIGHT_SHADOWS > 0
+				float lit = 0.0;
+				DirectionalLightShadow directionalLight;
+				#pragma unroll_loop_start
+				for ( int i = 0; i < NUM_DIR_LIGHT_SHADOWS; i ++ ) {
+					directionalLight = directionalLightShadows[ i ];
+					lit += receiveShadow ? getShadow( directionalShadowMap[ i ], directionalLight.shadowMapSize, directionalLight.shadowIntensity, directionalLight.shadowBias, directionalLight.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;
+				}
+				#pragma unroll_loop_end
+				shadow = lit / float( NUM_DIR_LIGHT_SHADOWS );
+				#endif
+				#endif
+				return shadow;
+			}
+		`)
+	}
+	material.customProgramCacheKey = () => 'charmlight-table-shadow'
+	return material
 }
 
 class DiceBox {
@@ -76,6 +151,7 @@ class DiceBox {
 		this.barrier;
 		this.camera;
 		this.light;
+		this.lights = [];
 		this.light_amb;
 		this.desk;
 		this.box_body = {};
@@ -126,16 +202,187 @@ class DiceBox {
 
 
 	enableShadows(){
-		this.shadows = true;
-		if (this.renderer) this.renderer.shadowMap.enabled = this.shadows;
-		if (this.light) this.light.castShadow = this.shadows;
-		if (this.desk) this.desk.receiveShadow = this.shadows;
+		this.setShadows(true);
 	}
 	disableShadows() {
-		this.shadows = false;
+		this.setShadows(false);
+	}
+
+	setShadows(enabled) {
+		this.shadows = Boolean(enabled);
 		if (this.renderer) this.renderer.shadowMap.enabled = this.shadows;
-		if (this.light) this.light.castShadow = this.shadows;
+		for (const light of this.lights) light.castShadow = this.shadows;
 		if (this.desk) this.desk.receiveShadow = this.shadows;
+		for (const dice of this.diceList) {
+			dice.castShadow = this.shadows;
+			dice.receiveShadow = this.shadows;
+			// Shadow support is compiled into each material's shader.
+			for (const material of [].concat(dice.material)) material.needsUpdate = true;
+		}
+		if (this.desk) this.desk.material.needsUpdate = true;
+		if (this.renderer && this.camera) this.render();
+	}
+
+	// Aim the key light without awaiting updateConfig(), e.g. while dragging.
+	setLightDirection(direction) {
+		this.light_direction = direction;
+		this.setupLighting();
+		if (this.renderer && this.camera) this.render();
+	}
+
+	// Unit vector from the table towards the key light.
+	getLightDirection() {
+		const direction = this.light_direction || {};
+		const vector = new THREE.Vector3();
+		if ('x' in direction || 'y' in direction || 'z' in direction) {
+			vector.set(Number(direction.x) || 0, Number(direction.y) || 0, Number(direction.z) || 0);
+		} else {
+			const azimuth = THREE.MathUtils.degToRad(Number(direction.azimuth ?? 315) || 0);
+			const elevation = THREE.MathUtils.degToRad(Number(direction.elevation ?? 58) || 0);
+			vector.set(Math.cos(elevation) * Math.sin(azimuth), Math.cos(elevation) * Math.cos(azimuth), Math.sin(elevation));
+		}
+		if (vector.lengthSq() === 0) vector.set(0, 0, 1);
+		vector.normalize();
+		// The table only faces up: keep the light above it, and never so low
+		// that shadows stretch across the whole board.
+		const flat = Math.hypot(vector.x, vector.y);
+		const elevation = THREE.MathUtils.clamp(Math.atan2(vector.z, flat), MIN_LIGHT_ELEVATION, Math.PI / 2);
+		const scale = flat > 1e-6 ? Math.cos(elevation) / flat : 0;
+		return vector.set(vector.x * scale, vector.y * scale, Math.sin(elevation));
+	}
+
+	getShadowQuality() {
+		if (SHADOW_QUALITY[this.shadow_quality]) return SHADOW_QUALITY[this.shadow_quality];
+		const small = Math.min(this.container.clientWidth, this.container.clientHeight) < 500;
+		return small ? SHADOW_QUALITY.medium : SHADOW_QUALITY.high;
+	}
+
+	// Builds the key light as a small cluster of directional lights spread over
+	// the face of an imaginary softbox. Their shadows overlap where a die touches
+	// the table and fan out with height, like the shadow of an actual lamp:
+	// tight and dark at the contact, wider and lighter further away.
+	setupLighting() {
+		for (const light of this.lights) {
+			this.scene.remove(light.target);
+			this.scene.remove(light);
+			light.dispose();
+		}
+		if (this.light_amb) this.scene.remove(this.light_amb);
+
+		const width = this.display.containerWidth, height = this.display.containerHeight;
+		const maxwidth = Math.max(width, height);
+		const direction = this.getLightDirection();
+		const quality = this.getShadowQuality();
+		const softness = Math.max(0, Number(this.shadow_softness) || 0);
+		const spread = Math.tan(THREE.MathUtils.degToRad(SOFTBOX_ANGLE)) * softness;
+		const count = softness > 0 ? quality.lights : 1;
+
+		// Two axes across the face of the softbox.
+		const across = new THREE.Vector3(0, 0, 1).cross(direction);
+		if (across.lengthSq() < 1e-8) across.set(1, 0, 0);
+		across.normalize();
+		const along = new THREE.Vector3().crossVectors(direction, across);
+
+		// Everything that can cast or catch a shadow: the table plus thrown dice.
+		const reach = maxwidth * 0.6;
+		const corners = [];
+		for (const x of [-1, 1]) for (const y of [-1, 1]) for (const z of [0, reach]) {
+			corners.push(new THREE.Vector3(x * width * 1.1, y * height * 1.1, z));
+		}
+
+		const view = new THREE.Matrix4(), corner = new THREE.Vector3();
+		const origin = new THREE.Vector3();
+		this.lights = [];
+		for (let i = 0; i < count; i++) {
+			const light = new THREE.DirectionalLight(this.color_spotlight, this.light_intensity * Math.PI / count);
+			const offset = softboxSample(i, count);
+			light.position.copy(direction)
+				.addScaledVector(across, offset.x * spread)
+				.addScaledVector(along, offset.y * spread)
+				.normalize().multiplyScalar(maxwidth * 4);
+			light.target.position.set(0, 0, 0);
+			light.castShadow = this.shadows;
+
+			// Fit the shadow map tightly around the board as this light sees it.
+			const camera = light.shadow.camera;
+			view.lookAt(light.position, origin, camera.up).setPosition(light.position).invert();
+			const min = new THREE.Vector3(Infinity, Infinity, Infinity), max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+			for (const point of corners) {
+				corner.copy(point).applyMatrix4(view);
+				min.min(corner);
+				max.max(corner);
+			}
+			camera.left = min.x; camera.right = max.x;
+			camera.bottom = min.y; camera.top = max.y;
+			camera.near = Math.max(1, -max.z - maxwidth * 0.1);
+			camera.far = -min.z + maxwidth * 0.1;
+			camera.updateProjectionMatrix();
+
+			light.shadow.mapSize.set(quality.mapSize, quality.mapSize);
+			const texel = Math.max(max.x - min.x, max.y - min.y) / quality.mapSize;
+			// Blur each shadow just enough to blend it into its neighbours.
+			const blur = DIE_HEIGHT * spread * (count === 1 ? 0.6 : 0.9 / Math.sqrt(count));
+			light.shadow.radius = Math.max(1, blur / texel);
+			light.shadow.bias = -0.0002;
+			light.shadow.normalBias = texel * 1.5;
+			this.scene.add(light.target);
+			this.scene.add(light);
+			this.lights.push(light);
+		}
+		this.light = this.lights[0];
+
+		this.light_amb = new THREE.HemisphereLight( 0xffffbb, 0x676771, this.light_intensity * Math.PI * 0.3 );
+		this.scene.add(this.light_amb);
+		this.scene.environmentIntensity = this.light_intensity;
+
+		if (this.desk) {
+			this.desk.material.color.set(this.shadow_color);
+			this.desk.material.opacity = this.shadow_opacity;
+		}
+		this.updateContactShadows();
+	}
+
+	// A soft dark patch under each die: the light the die itself blocks from
+	// reaching the table right next to it. It fades as the die lifts off.
+	addContactShadow(dicemesh) {
+		if (!contactShadowTexture) contactShadowTexture = makeContactShadowTexture();
+		if (!contactShadowGeometry) contactShadowGeometry = new THREE.PlaneGeometry(1, 1);
+		const material = new THREE.MeshBasicMaterial({
+			map: contactShadowTexture, color: this.shadow_color, transparent: true,
+			depthWrite: false, toneMapped: false, opacity: 0,
+		});
+		dicemesh.contactShadow = new THREE.Mesh(contactShadowGeometry, material);
+		dicemesh.contactShadow.renderOrder = 1;
+		this.scene.add(dicemesh.contactShadow);
+	}
+
+	removeContactShadow(dicemesh) {
+		if (!dicemesh.contactShadow) return;
+		this.scene.remove(dicemesh.contactShadow);
+		dicemesh.contactShadow.material.dispose();
+		dicemesh.contactShadow = null;
+	}
+
+	updateContactShadows() {
+		for (const dicemesh of this.diceList) {
+			const patch = dicemesh.contactShadow;
+			if (!patch) continue;
+			if (!dicemesh.geometry.boundingSphere) dicemesh.geometry.computeBoundingSphere();
+			const radius = dicemesh.geometry.boundingSphere.radius;
+			// A resting die's center always sits below its radius.
+			const lift = Math.max(0, dicemesh.position.z - radius) / radius;
+			const fade = Math.max(0, 1 - lift / 1.5);
+			patch.visible = this.shadows && fade > 0;
+			patch.position.set(dicemesh.position.x, dicemesh.position.y, 0.5);
+			patch.scale.setScalar(radius * (3 + lift));
+			patch.material.color.set(this.shadow_color);
+			patch.material.opacity = Math.min(1, this.shadow_opacity * 1.3) * fade * fade;
+		}
+	}
+
+	render() {
+		this.updateContactShadows();
+		this.renderer.render(this.scene, this.camera);
 	}
 
 	async initialize() {
@@ -193,7 +440,7 @@ class DiceBox {
 
 		this.initialized = true
 
-		this.renderer.render(this.scene, this.camera);
+		this.render();
 	}
 
 	makeWorldBox(){
@@ -321,6 +568,14 @@ class DiceBox {
 			})
 		}
 
+		if ('shadows' in options) {
+			this.setShadows(options.shadows)
+		}
+		if (this.renderer && LIGHT_KEYS.some(key => key in options)) {
+			this.setupLighting()
+			this.render()
+		}
+
 		// Match initialize(): callers can await the impact clips being ready.
 		if (options.sounds) {
 			await this.loadSounds()
@@ -363,48 +618,18 @@ class DiceBox {
 
 		this.camera.lookAt(new THREE.Vector3(0,0,0));
 		
-		const maxwidth = Math.max(this.display.containerWidth, this.display.containerHeight);
-
-		if (this.light) {
-			this.scene.remove(this.light);
-			this.light.dispose();
-		}
-		if (this.light_amb) this.scene.remove(this.light_amb);
-		this.light = new THREE.SpotLight(this.color_spotlight, this.light_intensity * Math.PI);
-		this.light.position.set(-maxwidth / 2, maxwidth / 2, maxwidth * 3);
-		// The physics board uses large world units. Compensate modern inverse-square
-		// attenuation at its center so table resizing preserves illumination.
-		this.light.intensity *= this.light.position.lengthSq();
-		this.light.target.position.set(0, 0, 0);
-		this.light.distance = maxwidth * 5;
-		this.light.angle = Math.PI/4;
-		this.light.castShadow = this.shadows;
-		this.light.shadow.camera.near = maxwidth / 10;
-		this.light.shadow.camera.far = maxwidth * 5;
-		this.light.shadow.camera.fov = 50;
-		this.light.shadow.bias = -0.0001;
-		this.light.shadow.normalBias = 0.5;
-		this.light.shadow.radius = 3;
-		const shadowSize = Math.min(this.container.clientWidth, this.container.clientHeight) < 500 ? 1024 : 2048;
-		this.light.shadow.mapSize.set(shadowSize, shadowSize);
-		this.scene.add(this.light);
-
-		this.light_amb = new THREE.HemisphereLight( 0xffffbb, 0x676771, this.light_intensity * Math.PI * 0.3 );
-		this.scene.add(this.light_amb);
-		this.scene.environmentIntensity = this.light_intensity;
-
 		if (this.desk) {
 			this.scene.remove(this.desk);
 			this.desk.geometry.dispose();
 			this.desk.material.dispose();
 		}
-		let shadowplane = new THREE.ShadowMaterial();
-		shadowplane.opacity = 0.5;
-		this.desk = new THREE.Mesh(new THREE.PlaneGeometry(this.display.containerWidth * 6, this.display.containerHeight * 6, 1, 1), shadowplane);
+		this.desk = new THREE.Mesh(new THREE.PlaneGeometry(this.display.containerWidth * 6, this.display.containerHeight * 6, 1, 1), makeTableShadowMaterial());
 		this.desk.receiveShadow = this.shadows;
 		this.scene.add(this.desk);
 
-		this.renderer.render(this.scene, this.camera);
+		this.setupLighting();
+
+		this.render();
 	}
 
 	resizeWorld(){
@@ -664,7 +889,9 @@ class DiceBox {
 			dicemesh.result = [];
 			dicemesh.stopped = 0;
 			dicemesh.castShadow = this.shadows;
+			dicemesh.receiveShadow = this.shadows;
 			this.scene.add(dicemesh);
+			this.addContactShadow(dicemesh);
 			this.diceList.push(dicemesh);
 		} else {
 			dicemesh = reset
@@ -874,7 +1101,7 @@ class DiceBox {
 			}
 		}
 
-		this.renderer.render(this.scene, this.camera);
+		this.render();
 		this.last_time = this.last_time + neededSteps*this.framerate*1000;
 
 
@@ -909,7 +1136,7 @@ class DiceBox {
 
 		this.running = false;
 		this.last_time = time;
-		this.renderer.render(this.scene, this.camera);
+		this.render();
 		if (this.running == threadid) {
 			((animateCallback, tid, at) => {
 				if (!at && time_diff < this.framerate) {
@@ -942,11 +1169,12 @@ class DiceBox {
 		let dice;
 		while (dice = this.diceList.pop()) {
 			this.scene.remove(dice); 
+			this.removeContactShadow(dice);
 			if (dice.body) this.world.removeBody(dice.body);
 		}
-		this.renderer.render(this.scene, this.camera);
+		this.render();
 
-		setTimeout(() => { this.renderer.render(this.scene, this.camera); }, 100);
+		setTimeout(() => { this.render(); }, 100);
 	}
 
 	getDiceResults(id){
@@ -1120,11 +1348,12 @@ class DiceBox {
 				const mesh = this.diceList[dieId]
 				if (mesh.body) this.world.removeBody(mesh.body);
 				this.scene.remove(mesh);
+				this.removeContactShadow(mesh);
 				mesh.storeRolledValue('remove');
 				results.push(this.getDiceResults(dieId))
 			})
 
-			this.renderer.render(this.scene, this.camera);
+			this.render();
 
 			this.onRemoveDiceComplete(results)
 

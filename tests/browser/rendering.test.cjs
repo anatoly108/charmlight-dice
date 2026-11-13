@@ -62,9 +62,9 @@ for (const viewport of [{ width: 900, height: 600 }, { width: 390, height: 844 }
 
           // Isolate the environment: direct and hemisphere lights cannot mask
           // a missing reflection map in this check.
-          const direct = box.light.intensity, fill = box.light_amb.intensity;
+          const direct = box.lights.map(light => light.intensity), fill = box.light_amb.intensity;
           const environment = box.scene.environment;
-          box.light.intensity = 0;
+          for (const light of box.lights) light.intensity = 0;
           box.light_amb.intensity = 0;
           box.renderer.render(box.scene, box.camera);
           gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
@@ -76,14 +76,37 @@ for (const viewport of [{ width: 900, height: 600 }, { width: 390, height: 844 }
             reflected += Math.max(0, pixels[i] + pixels[i + 1] + pixels[i + 2] - comparison[i] - comparison[i + 1] - comparison[i + 2]);
           }
           box.scene.environment = environment;
-          box.light.intensity = direct;
+          box.lights.forEach((light, index) => { light.intensity = direct[index]; });
           box.light_amb.intensity = fill;
+
+          // Shadows must fall away from the light: measure how far the table
+          // shadow sits from the dice that cast it, for two opposite lights.
+          const shadowOffset = azimuth => {
+            box.setLightDirection({ azimuth, elevation: 35 });
+            box.desk.visible = true;
+            box.renderer.render(box.scene, box.camera);
+            gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+            box.desk.visible = false;
+            box.renderer.render(box.scene, box.camera);
+            gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, comparison);
+            box.desk.visible = true;
+            let weight = 0, shadowX = 0, dice = 0, diceX = 0;
+            for (let i = 0; i < pixels.length; i += 4) {
+              const x = (i / 4) % gl.drawingBufferWidth;
+              const added = Math.max(0, pixels[i + 3] - comparison[i + 3]);
+              weight += added; shadowX += added * x;
+              if (comparison[i + 3] > 250) { dice++; diceX += x; }
+            }
+            return (shadowX / weight - diceX / dice) / gl.drawingBufferWidth;
+          };
+          const fromRight = shadowOffset(90), fromLeft = shadowOffset(270);
+          box.updateConfig({ light_direction: { azimuth: 315, elevation: 58 } });
           box.renderer.render(box.scene, box.camera);
           return {
             revision, values: result.sets[0].rolls.map(die => die.value),
             faces: box.diceList.map(die => die.getFaceValue().value),
             visible, bright, glError: gl.getError(),
-            shadow, reflected, pixelRatio: box.renderer.getPixelRatio(),
+            shadow, reflected, fromRight, fromLeft, lights: box.lights.length, pixelRatio: box.renderer.getPixelRatio(),
             toneMapping: box.renderer.toneMapping,
             environment: Boolean(box.scene.environment),
             webglVersion: gl.getParameter(gl.VERSION),
@@ -102,6 +125,9 @@ for (const viewport of [{ width: 900, height: 600 }, { width: 390, height: 844 }
         assert.equal(state.toneMapping, 7); // Three.js NeutralToneMapping.
         if (material !== 'none') assert.ok(state.reflected > 1000, 'studio environment must contribute reflected light');
         assert.ok(state.shadow > 100, 'grounded dice must draw soft shadow pixels');
+        assert.equal(state.lights, viewport.width < 500 ? 3 : 5);
+        assert.ok(state.fromRight < -0.002, `a light on the right must throw shadows to the left: ${state.fromRight}`);
+        assert.ok(state.fromLeft > 0.002, `a light on the left must throw shadows to the right: ${state.fromLeft}`);
         assert.ok(state.colorSpaces.every(colorSpace => colorSpace === 'srgb'));
         const followup = await page.evaluate(async () => {
           const added = await box.add('1d20@17');

@@ -34,11 +34,35 @@ const defaultConfig = {
 	theme_material: "glass", // "none" | "metal" | "wood" | "glass" | "plastic"
 	gravity_multiplier: 400,
 	light_intensity: 0.7,
+	light_direction: { azimuth: 315, elevation: 58 }, // degrees, see "Light and shadows"
+	shadow_opacity: 0.5, // darkness of shadows on the table, 0 to 1
+	shadow_color: 0x000000,
+	shadow_softness: 1, // size of the light source: 0 = hard edges, 2 = very soft
+	shadow_quality: "auto", // "auto" | "low" | "medium" | "high"
 	baseScale: 100,
 	strength: 1, // toss strength of dice
 	onRollComplete: () => {}
 }
 ```
+
+## Light and shadows
+`light_direction` says where the key light sits:
+
+- `azimuth`: compass angle on the screen. 0 = top, 90 = right, 180 = bottom, 270 = left.
+- `elevation`: height above the table. 90 = straight above (short shadows), 20 = low (long shadows). Values under 15 are raised to 15.
+- A vector also works: `{ x: -1, y: 1, z: 2 }` points from the table towards the light (x = right, y = up the screen, z = towards the viewer).
+
+Change it at any time:
+```
+Box.setLightDirection({ azimuth: 45, elevation: 40 }) // instant, good for dragging
+await Box.updateConfig({ light_direction: { azimuth: 45, elevation: 40 }, shadow_softness: 1.5 })
+```
+
+Shadows behave like those of a real lamp: dark and sharp where a die touches the table, wider and lighter further away. Each die also darkens the table right under it, and dice shade one another.
+
+`shadow_quality` sets how many lights form the soft key light: `low` = 1, `medium` = 3, `high` = 5. `auto` uses `medium` on small screens and `high` elsewhere. Use `low` if a device struggles.
+
+`npx vite . --port 5199` then `http://localhost:5199/demo/index.html` opens a playground with sliders for all of this.
 
 ## Getting Results
 ### There are three ways to get results

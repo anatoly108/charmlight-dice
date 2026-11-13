@@ -32,19 +32,113 @@ test('generated face colors use sRGB while bump textures remain linear data', ()
   }
 });
 
-test('spotlight illumination stays visible and consistent across table sizes', () => {
-  const box = new DiceBox('#dice');
-  box.renderer = { setSize() {}, render() {} };
+const makeBox = (options) => {
+  const box = new DiceBox('#dice', options);
+  box.renderer = { setSize() {}, render() {}, shadowMap: {} };
   box.setDimensions(new THREE.Vector2(900, 600));
-  const large = box.light.intensity / box.light.position.lengthSq();
-  assert.ok(large > 0.5 && large < 5, 'spotlight must compensate for board world units');
-  assert.equal(box.light.decay, 2, 'keep current inverse-square light attenuation');
+  return box;
+};
+const keyLight = box => box.lights.reduce((sum, light) => sum + light.intensity, 0);
+const towardsLight = box => box.light.position.clone().normalize();
+
+test('key light illumination stays visible and consistent across table sizes', () => {
+  const box = makeBox();
+  const large = keyLight(box);
+  assert.ok(large > 0.5 && large < 5, 'the key light must visibly light the dice');
   assert.ok(box.light_amb.intensity > 0 && box.light_amb.intensity < large / 2,
     'fill light should support the studio lighting without flattening the facets');
   box.container = { clientWidth: 390, clientHeight: 844 };
   box.setDimensions(new THREE.Vector2(390, 844));
-  const small = box.light.intensity / box.light.position.lengthSq();
-  assert.ok(Math.abs(small - large) < 1e-6, 'resizing must not dim the dice');
+  assert.ok(Math.abs(keyLight(box) - large) < 1e-6, 'resizing must not dim the dice');
+});
+
+test('light direction follows azimuth and elevation, a vector, and runtime changes', async () => {
+  const box = makeBox({ light_direction: { azimuth: 90, elevation: 30 } });
+  let direction = towardsLight(box);
+  assert.ok(Math.abs(direction.x - Math.cos(Math.PI / 6)) < 1e-6, 'azimuth 90 lights from the right');
+  assert.ok(Math.abs(direction.y) < 1e-6);
+  assert.ok(Math.abs(direction.z - 0.5) < 1e-6);
+
+  await box.updateConfig({ light_direction: { azimuth: 0, elevation: 90 } });
+  assert.ok(towardsLight(box).z > 0.999, 'elevation 90 lights from straight above');
+
+  box.setLightDirection({ x: -2, y: 0, z: 2 });
+  direction = towardsLight(box);
+  assert.ok(Math.abs(direction.x + Math.SQRT1_2) < 1e-6 && Math.abs(direction.z - Math.SQRT1_2) < 1e-6);
+
+  box.setLightDirection({ x: 0, y: 1, z: -5 });
+  direction = towardsLight(box);
+  assert.ok(direction.z > 0.2 && direction.y > 0.9, 'a light below the table is lifted above it');
+});
+
+test('every light of the key cluster covers the whole table with its shadow map', () => {
+  for (const light_direction of [{ azimuth: 315, elevation: 58 }, { azimuth: 40, elevation: 15 }, { azimuth: 0, elevation: 90 }]) {
+    const box = makeBox({ light_direction, shadow_quality: 'high', shadow_softness: 2 });
+    assert.equal(box.lights.length, 5);
+    for (const light of box.lights) {
+      light.updateMatrixWorld();
+      light.target.updateMatrixWorld();
+      light.shadow.updateMatrices(light);
+      for (const x of [-900, 900]) for (const y of [-600, 600]) for (const z of [0, 300]) {
+        const point = new THREE.Vector3(x, y, z).applyMatrix4(light.shadow.camera.matrixWorldInverse)
+          .applyMatrix4(light.shadow.camera.projectionMatrix);
+        assert.ok(Math.abs(point.x) <= 1 && Math.abs(point.y) <= 1 && Math.abs(point.z) <= 1,
+          `table corner ${x},${y},${z} must be inside the shadow map`);
+      }
+    }
+  }
+});
+
+test('shadow softness and quality choose the size of the light cluster', () => {
+  assert.equal(makeBox({ shadow_quality: 'low' }).lights.length, 1);
+  assert.equal(makeBox({ shadow_quality: 'medium' }).lights.length, 3);
+  assert.equal(makeBox({ shadow_quality: 'high', shadow_softness: 0 }).lights.length, 1, 'a hard light is a single point');
+  const soft = makeBox({ shadow_quality: 'high', shadow_softness: 2 });
+  const spread = Math.max(...soft.lights.map(light => light.position.angleTo(soft.light.position)));
+  assert.ok(spread > 0.1 && spread < 0.2, 'a softer light is a wider cluster');
+  assert.ok(soft.lights.every(light => light.castShadow));
+  assert.equal(soft.desk.material.opacity, 0.5);
+});
+
+test('contact shadows sit under resting dice, fade with height and leave with the die', () => {
+  const factory = new DiceFactory({ baseScale: 100 });
+  factory.applyColorSet({
+    id: 'contact-test', foreground: '#f4d899', background: '#48364e', outline: '#181220',
+    texture: { name: 'none', material: 'metal' },
+  });
+  const box = makeBox({ shadow_opacity: 0.4 });
+  const die = factory.create('d20');
+  box.diceList.push(die);
+  box.scene.add(die);
+  box.addContactShadow(die);
+  const patch = die.contactShadow;
+
+  die.position.set(120, -80, 79);
+  box.render();
+  assert.equal(patch.visible, true);
+  assert.deepEqual([patch.position.x, patch.position.y], [120, -80]);
+  const resting = patch.material.opacity;
+  assert.ok(resting > 0.3);
+
+  die.position.z = 170;
+  box.render();
+  assert.ok(patch.material.opacity > 0 && patch.material.opacity < resting, 'a lifted die darkens the table less');
+  die.position.z = 400;
+  box.render();
+  assert.equal(patch.visible, false, 'a die high in the air leaves no contact shadow');
+
+  die.position.z = 79;
+  box.setShadows(false);
+  assert.equal(patch.visible, false);
+  assert.equal(box.lights.some(light => light.castShadow), false);
+  box.setShadows(true);
+  assert.equal(patch.visible, true);
+
+  let disposed = false;
+  patch.material.addEventListener('dispose', () => { disposed = true; });
+  box.clearDice();
+  assert.equal(disposed, true);
+  assert.equal(box.scene.children.includes(patch), false);
 });
 
 test('solid dice respect depth and retain material reflection strength', () => {

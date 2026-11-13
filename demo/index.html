@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dice lighting playground</title>
+  <link rel="icon" href="data:,">
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; font: 13px/1.4 system-ui, sans-serif; color: #eee; }
+    body { background: radial-gradient(circle at 50% 40%, #3f7a5c, #1d3b2d); }
+    body.light { background: radial-gradient(circle at 50% 40%, #f3ead8, #cdbf9f); }
+    body.dark { background: #17151d; }
+    #dice { position: fixed; inset: 0; }
+    form { position: fixed; top: 12px; left: 12px; width: 230px; padding: 12px; border-radius: 10px;
+      background: rgba(20, 20, 24, .78); display: grid; gap: 8px; }
+    label { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; }
+    label input[type=range], label select { grid-column: 1 / -1; width: 100%; margin: 0; }
+    output { opacity: .7; font-variant-numeric: tabular-nums; }
+    button { padding: 8px; border: 0; border-radius: 6px; background: #e8c877; font-weight: 600; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div id="dice"></div>
+  <form id="controls">
+    <label>Light azimuth <output></output><input name="azimuth" type="range" min="0" max="360" value="315"></label>
+    <label>Light elevation <output></output><input name="elevation" type="range" min="15" max="90" value="58"></label>
+    <label>Shadow softness <output></output><input name="shadow_softness" type="range" min="0" max="3" step="0.1" value="1"></label>
+    <label>Shadow opacity <output></output><input name="shadow_opacity" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+    <label>Light intensity <output></output><input name="light_intensity" type="range" min="0.2" max="1.5" step="0.05" value="0.7"></label>
+    <label>Shadow quality<select name="shadow_quality"><option>auto</option><option>low</option><option>medium</option><option>high</option></select></label>
+    <label>Dice material<select name="material"><option>metal</option><option>glass</option><option>wood</option><option>none</option></select></label>
+    <label>Table<select name="table"><option value="">felt</option><option>light</option><option>dark</option></select></label>
+    <button type="button" id="roll">Roll</button>
+  </form>
+  <script type="module">
+    import DiceBox from '/src/index.js';
+    const form = document.querySelector('#controls');
+    const query = new URLSearchParams(location.search);
+    for (const [key, value] of query) if (form.elements[key]) form.elements[key].value = value;
+    const colorset = material => ({
+      name: `Playground ${material}`,
+      foreground: '#f4d899', background: '#48364e', outline: '#181220',
+      texture: 'bronze01', material,
+    });
+    const settings = () => ({
+      light_direction: { azimuth: +form.azimuth.value, elevation: +form.elevation.value },
+      shadow_softness: +form.shadow_softness.value,
+      shadow_opacity: +form.shadow_opacity.value,
+      light_intensity: +form.light_intensity.value,
+      shadow_quality: form.shadow_quality.value,
+    });
+    const labels = () => {
+      for (const input of form.querySelectorAll('input[type=range]')) input.previousElementSibling.textContent = input.value;
+      document.body.className = form.table.value;
+    };
+    labels();
+    const box = window.box = new DiceBox('#dice', {
+      assetPath: '/', ...settings(), theme_customColorset: colorset(form.material.value),
+    });
+    window.ready = box.initialize().then(() => box.roll(query.get('roll') || '2d20+2d6+1d12+1d8+1d4'));
+    form.addEventListener('input', async event => {
+      labels();
+      if (event.target.name === 'material') {
+        await box.updateConfig({ theme_customColorset: colorset(form.material.value) });
+        box.roll('2d20+2d6+1d12+1d8+1d4');
+      } else {
+        box.updateConfig(settings());
+      }
+    });
+    document.querySelector('#roll').addEventListener('click', () => box.roll('2d20+2d6+1d12+1d8+1d4'));
+  </script>
+</body>
+</html>

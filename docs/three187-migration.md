@@ -45,6 +45,9 @@ The user additionally authorized visual improvements during this upgrade:
 - `NeutralToneMapping` retains color while compressing bright highlights.
 - Opaque, depth-tested materials give overlapping dice correct occlusion.
 - Current filtered shadows use a softer radius and desktop/mobile map budgets.
+- Later change: the spotlight became a cluster of directional lights with a
+  configurable direction (`light_direction`), averaged table shadows and
+  per-die contact shadows. See "Light and shadows" in the README.
 - Device pixel ratio is capped at 2, with density-aware resize checks. Density-only
   changes redraw settled dice; replaced shadow targets and table geometry/materials
   are disposed during resize.
