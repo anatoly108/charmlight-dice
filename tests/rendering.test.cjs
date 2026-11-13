@@ -200,3 +200,70 @@ test('resizing disposes the replaced shadow target and table resources', () => {
   box.setDimensions(new THREE.Vector2(390, 844));
   assert.deepEqual(disposed.sort(), ['geometry', 'material', 'shadow']);
 });
+
+test('destroy frees GPU resources, listeners and the canvas, and stops rendering', t => {
+  const previousWindow = globalThis.window;
+  globalThis.window = Object.assign(new EventTarget(), {
+    devicePixelRatio: 1, requestAnimationFrame() {}, cancelAnimationFrame() {},
+  });
+  t.after(() => { globalThis.window = previousWindow; });
+  const factory = new DiceFactory({ baseScale: 100 });
+  const box = new DiceBox('#dice');
+  const calls = [];
+  let renders = 0;
+  box.renderer = {
+    setSize() {}, render() { renders++; }, shadowMap: {},
+    dispose() { calls.push('renderer'); }, forceContextLoss() { calls.push('context'); },
+    domElement: { remove() { calls.push('canvas'); } },
+  };
+  box.setDimensions(new THREE.Vector2(900, 600));
+  box.resizeWorld();
+  box.DiceFactory.applyColorSet({
+    id: 'destroy-test', foreground: '#f4d899', background: '#48364e', outline: '#181220',
+    texture: { name: 'none', material: 'metal' },
+  });
+  const die = box.DiceFactory.create('d6');
+  box.diceList.push(die);
+  box.scene.add(die);
+  box.addContactShadow(die);
+  die.material[0].addEventListener('dispose', () => calls.push('die material'));
+  die.material[0].map.addEventListener('dispose', () => calls.push('face texture'));
+  die.geometry.addEventListener('dispose', () => calls.push('die shape'));
+  box.desk.material.addEventListener('dispose', () => calls.push('table'));
+  const removed = [];
+  window.removeEventListener = (type, handler) => removed.push([type, handler]);
+
+  box.destroy();
+  box.destroy();
+  assert.deepEqual(calls.sort(), ['canvas', 'context', 'die material', 'die shape', 'face texture', 'renderer', 'table']);
+  assert.deepEqual(removed, [['resize', box.resizeHandler]]);
+  assert.equal(box.scene.children.filter(child => child.isMesh || child.isLight).length, 0);
+  const before = renders;
+  box.render();
+  box.setLightDirection({ azimuth: 10, elevation: 40 });
+  assert.equal(renders, before, 'a destroyed box must not draw');
+  assert.rejects(() => box.initialize(), /destroyed/);
+});
+
+test('the package entry loads as plain ESM without a browser or a bundler', () => {
+  // The host app renders on the server first: importing must not touch the DOM.
+  const { execFileSync } = require('node:child_process');
+  const { resolve } = require('node:path');
+  const root = resolve(__dirname, '..');
+  const output = execFileSync(process.execPath, ['--input-type=module', '-e',
+    `const dice = await import('charmlight-dice'); console.log(typeof dice.default, dice.default === dice.DiceBox, typeof document);`,
+  ], { cwd: root, encoding: 'utf8' });
+  assert.equal(output.trim(), 'function true undefined');
+});
+
+test('the installed package ships the source, types, assets and nothing else', () => {
+  const { execFileSync } = require('node:child_process');
+  const { resolve } = require('node:path');
+  const packed = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--json'], {
+    cwd: resolve(__dirname, '..'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+  }))[0].files.map(file => file.path);
+  for (const needed of ['src/index.js', 'src/index.d.ts', 'src/DiceBox.js', 'bin/copy-assets.mjs', 'public/textures/bronze01.webp', 'package.json']) {
+    assert.ok(packed.includes(needed), `${needed} must be in the package`);
+  }
+  assert.deepEqual(packed.filter(path => /^(tests|demo|docs|dist|\.claude|\.github)\//.test(path)), []);
+});

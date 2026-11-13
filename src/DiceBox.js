@@ -8,7 +8,7 @@ import { DiceColors } from './DiceColors.js';
 import { THEMES } from './const/themes.js';
 // import CannonDebugger from 'cannon-es-debugger'
 
-import { debounce } from "./helpers"
+import { debounce } from "./helpers.js"
 
 const defaultConfig = {
 	assetPath: "./",
@@ -380,12 +380,60 @@ class DiceBox {
 		}
 	}
 
+	// Frees the WebGL context, GPU memory and listeners, and removes the canvas.
+	// Call it when the dice leave the page; the instance cannot be used afterwards.
+	// A roll that is still in the air never resolves.
+	destroy() {
+		if (this.destroyed) return;
+		this.destroyed = true;
+		this.initialized = false;
+		this.running = false;
+		this.rolling = false;
+		if (this.resizeHandler) window.removeEventListener("resize", this.resizeHandler);
+
+		let dice;
+		while (dice = this.diceList.pop()) {
+			this.scene.remove(dice);
+			this.removeContactShadow(dice);
+			if (dice.body) this.world.removeBody(dice.body);
+			for (const material of [].concat(dice.material)) material.dispose();
+		}
+		this.DiceFactory.dispose();
+
+		for (const light of this.lights) {
+			this.scene.remove(light.target);
+			this.scene.remove(light);
+			light.dispose();
+		}
+		this.lights = [];
+		this.light = null;
+		if (this.light_amb) this.scene.remove(this.light_amb);
+		if (this.desk) {
+			this.scene.remove(this.desk);
+			this.desk.geometry.dispose();
+			this.desk.material.dispose();
+			this.desk = null;
+		}
+		this.scene.environment = null;
+		if (this.environmentTarget) this.environmentTarget.dispose();
+		this.environmentTarget = null;
+
+		if (this.renderer) {
+			this.renderer.dispose();
+			// Browsers only allow a handful of live WebGL contexts per page.
+			this.renderer.forceContextLoss();
+			this.renderer.domElement.remove();
+		}
+	}
+
 	render() {
+		if (this.destroyed) return;
 		this.updateContactShadows();
 		this.renderer.render(this.scene, this.camera);
 	}
 
 	async initialize() {
+		if (this.destroyed) throw new Error("This dice box was destroyed. Create a new one.")
 
 		// this.cannonDebugger = new CannonDebugger(this.scene,this.world)
 		this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
@@ -646,8 +694,8 @@ class DiceBox {
 			}
 			return needResize;
 		}
-		const debounceResize = debounce(resize)
-		window.addEventListener("resize", debounceResize)
+		this.resizeHandler = debounce(resize)
+		window.addEventListener("resize", this.resizeHandler)
 	}
 
 	vectorRand({x, y}) {
