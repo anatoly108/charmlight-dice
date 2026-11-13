@@ -1,5 +1,5 @@
-import {TEXTURELIST} from "./const/texturelist"
-import {COLORSETS} from "./const/colorsets"
+import {TEXTURELIST} from "./const/texturelist.js"
+import {COLORSETS} from "./const/colorsets.js"
 
 export class DiceColors {
 	
