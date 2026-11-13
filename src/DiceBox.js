@@ -143,7 +143,7 @@ class DiceBox {
 		this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
 		this.container.appendChild(this.renderer.domElement);
 		this.renderer.shadowMap.enabled = this.shadows;
-		this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+		this.renderer.shadowMap.type = THREE.PCFShadowMap;
 		this.renderer.setClearColor(0x000000, 0);
 
 		this.setDimensions(this.dimensions);
@@ -349,8 +349,11 @@ class DiceBox {
 
 		if (this.light) this.scene.remove(this.light);
 		if (this.light_amb) this.scene.remove(this.light_amb);
-		this.light = new THREE.SpotLight(this.color_spotlight, this.light_intensity);
+		this.light = new THREE.SpotLight(this.color_spotlight, this.light_intensity * Math.PI);
 		this.light.position.set(-maxwidth / 2, maxwidth / 2, maxwidth * 3);
+		// The physics board uses large world units. Compensate modern inverse-square
+		// attenuation at its center so table resizing preserves illumination.
+		this.light.intensity *= this.light.position.lengthSq();
 		this.light.target.position.set(0, 0, 0);
 		this.light.distance = maxwidth * 5;
 		this.light.angle = Math.PI/4;
@@ -363,7 +366,7 @@ class DiceBox {
 		this.light.shadow.mapSize.height = 1024;
 		this.scene.add(this.light);
 
-		this.light_amb = new THREE.HemisphereLight( 0xffffbb, 0x676771, this.light_intensity );
+		this.light_amb = new THREE.HemisphereLight( 0xffffbb, 0x676771, this.light_intensity * Math.PI );
 		this.scene.add(this.light_amb);
 
 		if (this.desk) this.scene.remove(this.desk);

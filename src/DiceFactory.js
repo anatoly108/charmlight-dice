@@ -492,6 +492,7 @@ class DiceFactory {
 		}
 
 		var compositetexture = new THREE.CanvasTexture(canvas);
+		compositetexture.colorSpace = THREE.SRGBColorSpace;
 		var bumpMap;
 		if (!isTexture) {
 			bumpMap = new THREE.CanvasTexture(canvasBump);
