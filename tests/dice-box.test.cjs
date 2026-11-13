@@ -43,12 +43,12 @@ function createTable(t) {
   return {
     box,
     advance(milliseconds) { now += milliseconds; },
-    settle() {
+    settle(frameMilliseconds = 20) {
       let count = 0;
       while (box.rolling) {
         assert.ok(++count <= 1100, 'animation must finish within its iteration limit');
         assert.ok(frames.length, 'unfinished roll must schedule another animation frame');
-        now += 20;
+        now += frameMilliseconds;
         frames.shift()(now);
       }
       return count;
@@ -195,4 +195,28 @@ test('backend-supplied d20 outcomes 1 through 20 match the final face geometry',
     assert.equal(result.sets[0].rolls[0].value, value);
     assert.equal(table.box.diceList[0].getFaceValue().value, value);
   }
+});
+
+test('supplied multi-die outcomes survive delayed animation frames', async t => {
+  const table = createTable(t);
+  for (const frameMilliseconds of [40, 80, 100, 250, 500]) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const rolled = table.box.roll('4d20@1,7,13,20');
+      table.settle(frameMilliseconds);
+      const result = await rolled;
+      assert.deepEqual(result.sets[0].rolls.map(die => die.value), [1, 7, 13, 20],
+        `supplied outcomes must survive ${frameMilliseconds}ms frames (attempt ${attempt})`);
+      assert.deepEqual(table.box.diceList.map(die => die.getFaceValue().value), [1, 7, 13, 20]);
+    }
+  }
+});
+
+test('simulation iteration limits count physics steps during delayed frames', async t => {
+  const table = createTable(t);
+  table.box.iterationLimit = 40;
+  const rolled = table.box.roll('4d20@1,7,13,20');
+  table.settle(100);
+  const result = await rolled;
+  assert.deepEqual(result.sets[0].rolls.map(die => die.value), [1, 7, 13, 20]);
+  assert.deepEqual(table.box.diceList.map(die => die.getFaceValue().value), [1, 7, 13, 20]);
 });

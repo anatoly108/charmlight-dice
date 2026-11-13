@@ -26,6 +26,15 @@ Current Three.js requires **WebGL 2**. Browsers/devices limited to WebGL 1 canno
 use this version of the renderer. No global color-management or legacy-light
 switches are used.
 
+## Supplied outcomes under irregular frames
+
+Browser validation exposed an existing simulation/playback mismatch: the hidden
+simulation counted physics steps, while visible playback counted display frames
+and checked sleep transitions only after a batch of catch-up steps. Slow frames
+could therefore continue beyond the simulated outcome, producing a different
+face. Both paths now count and finish at the same fixed physics steps. Tests
+cover multiple supplied dice under delayed frames and an explicit iteration cap.
+
 ## Modern studio rendering
 
 The user additionally authorized visual improvements during this upgrade:
