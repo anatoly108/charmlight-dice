@@ -115,8 +115,8 @@ for (const viewport of [{ width: 900, height: 600 }, { width: 390, height: 844 }
         await page.setViewportSize({ width: viewport.width + 40, height: viewport.height });
         await page.waitForFunction(() => box.renderer.domElement.width === Math.floor(window.innerWidth * box.renderer.getPixelRatio()));
         assert.deepEqual(errors, []);
-        await page.screenshot({ path: resolve(__dirname, `../../test-results/${material}-${viewport.width}.png`) });
       } finally {
+        await page.screenshot({ path: resolve(__dirname, `../../test-results/${material}-${viewport.width}.png`) }).catch(() => {});
         await page.close();
       }
     });
