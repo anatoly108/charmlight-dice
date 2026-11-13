@@ -1,4 +1,6 @@
 # dice-box-threejs
+
+Charmlight's private maintenance copy. See [upstream fixes and verification](docs/upstream-fixes.md) for imported bug fixes, backend-supplied results, and test instructions.
 3D Dice implemented with ThreeJS and Cannon ES
 
 Based on [Major's 3D Dice](https://majorvictory.github.io/3DDiceRoller/)
