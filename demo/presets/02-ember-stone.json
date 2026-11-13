@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "Ember Stone",
+  "description": "Rough red stone with a soft sheen. The original favourite.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#ffd9a8",
+    "fill_color": "#c8d6ff",
+    "rim_color": "#9ec1ff",
+    "rim_intensity": 0.3,
+    "material_tuning": {
+      "sheen": 0.6,
+      "texture_depth": 1.4
+    },
+    "theme_customColorset": {
+      "name": "Ember Stone",
+      "background": "#8c2026",
+      "foreground": "#ffe2a3",
+      "outline": "#310b0d",
+      "texture": "fire",
+      "material": "none"
+    }
+  }
+}

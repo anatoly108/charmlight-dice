@@ -95,6 +95,13 @@ export const TEXTURELIST = {
 		source_bump: 'textures/metal-bump.webp',
 		material: 'metal'
 	},
+	'brushed': {
+		name: 'Brushed Metal',
+		composite: 'multiply',
+		source: 'textures/brushed.webp',
+		source_bump: 'textures/brushed-bump.webp',
+		material: 'metal'
+	},
 	'skulls': {
 		name: 'Skulls',
 		composite: 'multiply',
@@ -133,7 +140,7 @@ export const TEXTURELIST = {
 		name: 'Lizard',
 		composite: 'multiply',
 		source: 'textures/lizard.webp',
-		source_bump: 'textures/lizard.webp',
+		source_bump: 'textures/lizard-bump.webp',
 		material: 'none'
 	},
 	'bird': {
@@ -150,25 +157,11 @@ export const TEXTURELIST = {
 		source_bump: 'textures/stars.webp',
 		material: 'none'
 	},
-	'acleaf': {
-		name: 'AC Leaf',
+	'stone': {
+		name: 'Stone',
 		composite: 'multiply',
-		source: 'textures/acleaf.webp',
-		source_bump: 'textures/acleaf.webp',
-		material: 'none'
-	},
-	'thecage': {
-		name: 'Nicholas Cage',
-		composite: 'multiply',
-		source: 'textures/thecage.webp',
-		source_bump: '',
-		material: 'metal'
-	},
-	'isabelle': {
-		name: 'Isabelle',
-		composite: 'source-over',
-		source: 'textures/isabelle.webp',
-		source_bump: '',
+		source: 'textures/stone.webp',
+		source_bump: 'textures/stone.webp',
 		material: 'none'
 	},
 	'bronze01': {

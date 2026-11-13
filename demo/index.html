@@ -12,13 +12,33 @@
     body.dark { background: #17151d; }
     #dice { position: fixed; inset: 0; }
     form { position: fixed; top: 12px; left: 12px; width: max-content; max-width: calc(100vw - 24px); padding: 10px; border-radius: 10px;
-      background: rgba(20, 20, 24, .78); display: grid; gap: 8px; }
-    details[open] { width: min(210px, calc(100vw - 44px)); max-height: min(70vh, 540px); overflow-y: auto; }
+      background: rgba(20, 20, 24, .78); display: grid; gap: 8px;
+      max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px); box-sizing: border-box;
+      overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+    /* Always show the scroll bar: some systems hide it until you scroll. */
+    form::-webkit-scrollbar { width: 10px; }
+    form::-webkit-scrollbar-track { background: rgba(255, 255, 255, .08); border-radius: 5px; }
+    form::-webkit-scrollbar-thumb { background: #e8c877; border-radius: 5px; }
+    label.check { grid-template-columns: auto 1fr; align-items: center; justify-content: start; }
+    label.check input { margin: 0; }
+    details[open] { width: min(210px, calc(100vw - 60px)); }
     summary { cursor: pointer; padding: 5px 2px; color: #f4d899; }
     details label { margin-top: 8px; }
     .dice-choice { align-items: center; }
     .dice-choice input { width: 64px; padding: 5px; font: inherit; }
     #roll-message { color: #ffcf9e; max-width: 210px; }
+    #roll-hint { opacity: .6; font-size: 12px; padding: 0 2px; }
+    #dice { cursor: pointer; }
+    .colour { align-items: center; }
+    .colour input { width: 64px; height: 28px; padding: 0; border: 0; background: none; }
+    .group { margin: 12px 0 0; color: #f4d899; font-size: 12px; }
+    label:has(input:disabled) { opacity: .4; }
+    #reset-tuning { margin-top: 12px; width: 100%; background: #6f6a5c; color: #fff; }
+    .file-buttons { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+    .file-buttons button { padding: 6px 4px; }
+    #file-message { font-size: 12px; opacity: .8; max-width: 210px; }
+    #file-message:empty { display: none; }
+    #texture-info { display: block; margin-top: 4px; opacity: .7; font-size: 12px; }
     summary:focus-visible, button:focus-visible { outline: 2px solid #e8c877; outline-offset: 3px; }
     label { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; }
     label input[type=range], label select { grid-column: 1 / -1; width: 100%; margin: 0; }
@@ -28,21 +48,61 @@
 </head>
 <body>
   <div id="dice"></div>
+  <input id="import-file" type="file" accept="application/json,.json" hidden>
   <form id="controls">
+    <div class="file-buttons">
+      <button type="button" id="export">Export</button>
+      <button type="button" id="import">Import</button>
+      <button type="button" id="random">Random</button>
+    </div>
+    <label>Preset<select name="preset"><option value="">Choose a saved look…</option></select></label>
+    <span id="file-message" role="status" aria-live="polite"></span>
     <details>
     <summary>Lighting settings</summary>
     <label>Light azimuth <output></output><input name="azimuth" type="range" min="0" max="360" value="315"></label>
     <label>Light elevation <output></output><input name="elevation" type="range" min="15" max="90" value="58"></label>
     <label>Shadow softness <output></output><input name="shadow_softness" type="range" min="0" max="3" step="0.1" value="1"></label>
     <label>Shadow opacity <output></output><input name="shadow_opacity" type="range" min="0" max="1" step="0.05" value="0.5"></label>
+    <label>Edge roundness <output></output><input name="edge_roundness" type="range" min="0" max="2" step="0.1" value="1"></label>
+    <label>Rim light <output></output><input name="rim_intensity" type="range" min="0" max="1.5" step="0.05" value="0"></label>
+    <label class="colour">Main light colour <input name="color_spotlight" type="color" value="#efdfd5"></label>
+    <label class="colour">Fill light colour <input name="fill_color" type="color" value="#ffffbb"></label>
+    <label class="colour">Rim light colour <input name="rim_color" type="color" value="#dfe8ff"></label>
+    <label class="check"><input name="reflections_follow_light" type="checkbox" checked> Reflections follow the light</label>
+    <label>Fill light <output></output><input name="fill_intensity" type="range" min="0" max="2" step="0.05" value="1"></label>
     <label>Light intensity <output></output><input name="light_intensity" type="range" min="0.2" max="1.5" step="0.05" value="0.7"></label>
     <label>Shadow quality<select name="shadow_quality"><option>auto</option><option>low</option><option>medium</option><option>high</option></select></label>
     <label>Table<select name="table"><option value="">felt</option><option>light</option><option>dark</option></select></label>
     </details>
     <details>
       <summary>Dice appearance</summary>
-      <label>Skin<select name="skin"><option value="bronze">Bronze &amp; violet</option><option value="obsidian">Obsidian stars</option><option value="ivory">Ivory marble</option><option value="emerald">Emerald cloud</option><option value="crimson" selected>Crimson flame</option></select></label>
-      <label>Material<select name="material"><option value="metal">Metal</option><option value="glass">Glass</option><option value="wood">Wood</option><option value="none" selected>Plastic</option></select></label>
+      <label class="colour">Dice colour <input name="dice_colour" type="color" value="#8c2026"></label>
+      <label class="colour">Number colour <input name="number_colour" type="color" value="#ffe2a3"></label>
+      <label>Texture<select name="texture"><option value="none">None (plain colour)</option></select></label>
+      <span id="texture-info"></span>
+      <label class="check"><input name="normal_maps" type="checkbox" checked> Normal maps (off = bump maps)</label>
+      <label>Material<select name="material"><option value="metal">Metal</option><option value="glass">Glass</option><option value="wood">Wood</option><option value="none" selected>Phong plastic</option><option value="plastic">PBR plastic</option></select></label>
+    </details>
+    <details>
+      <summary>Material tuning</summary>
+      <label>Brightness <output></output><input name="brightness" type="range" min="0.4" max="1.6" step="0.05" value="1"></label>
+      <label>Texture depth <output></output><input name="texture_depth" type="range" min="0" max="4" step="0.1" value="1"></label>
+      <label>Number glow <output></output><input name="glow" type="range" min="0" max="3" step="0.05" value="0"></label>
+      <label class="colour">Glow colour <input name="glow_color" type="color" value="#ffe2a3"></label>
+      <p class="group">Phong plastic only</p>
+      <label>Sheen <output></output><input name="sheen" data-for="phong" type="range" min="0" max="1" step="0.05" value="1"></label>
+      <label>Sheen tightness <output></output><input name="sheen_tightness" data-for="phong" type="range" min="1" max="60" step="1" value="5"></label>
+      <p class="group">PBR materials only</p>
+      <label>Roughness <output></output><input name="roughness" data-for="pbr" type="range" min="0" max="1" step="0.05" value="0.35"></label>
+      <label>Metalness <output></output><input name="metalness" data-for="pbr" type="range" min="0" max="1" step="0.05" value="0"></label>
+      <label>Reflections <output></output><input name="reflections" data-for="pbr" type="range" min="0" max="1.5" step="0.05" value="0.4"></label>
+      <label>Clear coat <output></output><input name="clearcoat" data-for="pbr" type="range" min="0" max="1" step="0.05" value="0"></label>
+      <label>Clear coat roughness <output></output><input name="clearcoat_roughness" data-for="pbr" type="range" min="0" max="1" step="0.05" value="0"></label>
+      <label>Iridescence <output></output><input name="iridescence" data-for="pbr" type="range" min="0" max="1" step="0.05" value="0"></label>
+      <label>Iridescence thickness <output></output><input name="iridescence_thickness" data-for="pbr" type="range" min="100" max="900" step="10" value="400"></label>
+      <label>Brushed (stretch highlights) <output></output><input name="anisotropy" data-for="pbr" type="range" min="0" max="1" step="0.05" value="0"></label>
+      <label>Brush angle <output></output><input name="anisotropy_angle" data-for="pbr" type="range" min="0" max="180" step="5" value="0"></label>
+      <button type="button" id="reset-tuning">Reset tuning</button>
     </details>
     <details>
       <summary>Choose dice</summary>
@@ -55,34 +115,102 @@
       <label class="dice-choice">d100 <input data-die="d100" type="number" min="0" max="10" value="0" inputmode="numeric"></label>
     </details>
     <span id="roll-message" role="status" aria-live="polite"></span>
-    <button type="button" id="roll">Roll</button>
+    <span id="roll-hint">Tap the table to roll</span>
   </form>
   <script type="module">
     import DiceBox from '/src/index.js';
+    import { TEXTURELIST } from '/src/const/texturelist.js';
+    import { MATERIALTYPES } from '/src/const/materialtypes.js';
+    import { randomLook, darken } from './random.js';
     const form = document.querySelector('#controls');
+    // Textures grouped by how they fake surface depth under the light.
+    const bumpGroups = [
+      ['real', 'Real bump map', 'has its own bump image: the most convincing depth'],
+      ['borrowed', 'Borrowed bump map', 'takes its bumps from another texture'],
+      ['self', 'Bump from colour image', 'reads its own colours as bumps: bright = high'],
+      ['flat', 'Flat (no bump)', 'colour only, the surface stays smooth'],
+    ];
+    const bumpGroup = texture => !texture.source_bump ? 'flat'
+      : texture.source_bump === texture.source ? 'self'
+      : texture.source_bump.includes('-bump') ? 'real' : 'borrowed';
+    const textures = Object.entries(TEXTURELIST).filter(([, texture]) => texture.source);
+    for (const [group, title] of bumpGroups) {
+      const options = document.createElement('optgroup');
+      options.label = title;
+      for (const [key, texture] of textures) {
+        if (bumpGroup(texture) === group) options.append(new Option(texture.name, key));
+      }
+      form.texture.append(options);
+    }
+    form.texture.value = 'fire';
     const query = new URLSearchParams(location.search);
     for (const [key, value] of query) if (form.elements[key]) form.elements[key].value = value;
-    const skins = {
-      bronze: { foreground: '#f4d899', background: '#48364e', outline: '#181220', texture: 'bronze01' },
-      obsidian: { foreground: '#e8e7ff', background: '#171628', outline: '#050510', texture: 'stars' },
-      ivory: { foreground: '#392a22', background: '#f2e5ce', outline: '#b59b78', texture: 'marble' },
-      emerald: { foreground: '#f9df9c', background: '#165743', outline: '#06291d', texture: 'cloudy' },
-      crimson: { foreground: '#ffe2a3', background: '#8c2026', outline: '#320b12', texture: 'fire' },
-    };
+    // The outline around the numbers is a darker shade of the dice colour.
     const colorset = material => ({
-      name: `Playground ${form.skin.value} ${material}`,
-      ...(skins[form.skin.value] || skins.bronze), material,
+      name: `Playground ${form.dice_colour.value} ${form.number_colour.value} ${form.texture.value} ${material}`,
+      background: form.dice_colour.value,
+      foreground: form.number_colour.value,
+      outline: darken(form.dice_colour.value, 0.35),
+      texture: form.texture.value,
+      material,
     });
+    // Tuning sliders follow the chosen material: its own values are the starting
+    // point, and sliders that do nothing for it are switched off.
+    const isPhong = () => form.material.value === 'none';
+    const resetTuning = () => {
+      const type = MATERIALTYPES[form.material.value];
+      Object.assign(form.brightness, { value: 1 });
+      Object.assign(form.texture_depth, { value: 1 });
+      Object.assign(form.sheen, { value: 1 });
+      Object.assign(form.sheen_tightness, { value: 5 });
+      form.roughness.value = type.roughness ?? 0.35;
+      form.metalness.value = type.metalness ?? 0;
+      form.reflections.value = type.envMapIntensity ?? 1;
+      form.clearcoat.value = type.clearcoat ?? 0;
+      form.clearcoat_roughness.value = type.clearcoatRoughness ?? 0;
+      form.glow.value = 0;
+      form.glow_color.value = form.number_colour.value;
+      form.iridescence.value = 0;
+      form.iridescence_thickness.value = 400;
+      form.anisotropy.value = 0;
+      form.anisotropy_angle.value = 0;
+      for (const input of form.querySelectorAll('[data-for]')) input.disabled = (input.dataset.for === 'phong') !== isPhong();
+    };
+    const tuning = () => ({
+      brightness: +form.brightness.value,
+      texture_depth: +form.texture_depth.value,
+      glow: +form.glow.value,
+      glow_color: form.glow_color.value,
+      ...(isPhong()
+        ? { sheen: +form.sheen.value, sheen_tightness: +form.sheen_tightness.value }
+        : { roughness: +form.roughness.value, metalness: +form.metalness.value, reflections: +form.reflections.value,
+            clearcoat: +form.clearcoat.value, clearcoat_roughness: +form.clearcoat_roughness.value,
+            iridescence: +form.iridescence.value, iridescence_thickness: +form.iridescence_thickness.value,
+            anisotropy: +form.anisotropy.value, anisotropy_angle: +form.anisotropy_angle.value }),
+    });
+    resetTuning();
     const settings = () => ({
       light_direction: { azimuth: +form.azimuth.value, elevation: +form.elevation.value },
       shadow_softness: +form.shadow_softness.value,
       shadow_opacity: +form.shadow_opacity.value,
       light_intensity: +form.light_intensity.value,
       shadow_quality: form.shadow_quality.value,
+      edge_roundness: +form.edge_roundness.value,
+      fill_intensity: +form.fill_intensity.value,
+      fill_color: form.fill_color.value,
+      color_spotlight: form.color_spotlight.value,
+      rim_intensity: +form.rim_intensity.value,
+      rim_color: form.rim_color.value,
+      reflections_follow_light: form.reflections_follow_light.checked,
+      normal_maps: form.normal_maps.checked,
+      material_tuning: tuning(),
     });
     const labels = () => {
       for (const input of form.querySelectorAll('input[type=range]')) input.previousElementSibling.textContent = input.value;
       document.body.className = form.table.value;
+      const texture = TEXTURELIST[form.texture.value];
+      const group = bumpGroups.find(([name]) => name === bumpGroup(texture));
+      document.querySelector('#texture-info').textContent = texture.source ? `${texture.name}: ${group[2]}.` : 'Plain colour, no texture.';
     };
     const diceNotation = () => [...form.querySelectorAll('[data-die]')].map(input => {
       const count = Math.max(0, Math.min(10, Math.floor(Number(input.value) || 0)));
@@ -128,17 +256,128 @@
       };
     }
     window.ready = box.initialize().then(rollDice);
-    form.addEventListener('input', async event => {
+    const applyControl = async event => {
+      if (event.target.name === 'preset') {
+        if (!form.preset.value) return;
+        const file = form.preset.value;
+        try {
+          const preset = await (await fetch(`./presets/${file}`)).json();
+          await importSettings(preset);
+          form.preset.value = file;
+          fileMessage(preset.description || `Loaded ${preset.name}`);
+        } catch (error) {
+          fileMessage(`Could not load ${file}: ${error.message}`);
+        }
+        return;
+      }
       labels();
-      if (event.target.matches('[data-die]')) return;
-      if (event.target.name === 'material' || event.target.name === 'skin') {
-        await box.updateConfig({ theme_customColorset: colorset(form.material.value), sounds: true });
+      // Colour pickers fire while dragging; apply them once the colour is chosen.
+      if (event.target.matches('[data-die]') || (event.target.type === 'color' && event.type === 'input')) return;
+      if (event.target.name === 'edge_roundness' || event.target.name === 'normal_maps') {
+        // These apply to dice thrown afterwards.
+        await box.updateConfig(settings());
+        rollDice();
+      } else if (['material', 'texture', 'dice_colour', 'number_colour'].includes(event.target.name)) {
+        if (event.target.name === 'material') { resetTuning(); labels(); }
+        await box.updateConfig({ ...settings(), theme_customColorset: colorset(form.material.value), sounds: true });
         rollDice();
       } else {
         box.updateConfig(settings());
       }
+    };
+    form.addEventListener('input', applyControl);
+    form.addEventListener('change', event => { if (event.target.type === 'color') applyControl(event); });
+    document.querySelector('#reset-tuning').addEventListener('click', () => {
+      resetTuning();
+      labels();
+      box.updateConfig(settings());
     });
-    document.querySelector('#roll').addEventListener('click', () => {
+    // Export and import. "options" is exactly what DiceBox takes, so it can be
+    // pasted into an app as is. "playground" holds what only this page knows.
+    const exportSettings = () => ({
+      version: 1,
+      options: { ...settings(), theme_customColorset: colorset(form.material.value) },
+      playground: {
+        table: form.table.value,
+        dice: Object.fromEntries([...form.querySelectorAll('[data-die]')].map(input => [input.dataset.die, +input.value])),
+      },
+    });
+    const importSettings = async data => {
+      const options = data?.options;
+      if (!options || typeof options !== 'object') throw new Error('No "options" found in this file.');
+      const set = (name, value) => {
+        if (value === undefined || value === null || !form.elements[name]) return;
+        const control = form.elements[name];
+        if (control.tagName === 'SELECT' && ![...control.options].some(option => option.value === String(value))) {
+          throw new Error(`Unknown ${name}: ${value}`);
+        }
+        if (control.type === 'checkbox') control.checked = Boolean(value);
+        else control.value = value;
+      };
+      // Start from the defaults, so a file only has to say what it changes.
+      const dice = Object.fromEntries([...form.querySelectorAll('[data-die]')].map(input => [input.dataset.die, input.value]));
+      const table = form.table.value;
+      form.reset();
+      form.texture.value = 'fire';
+      form.table.value = table;
+      for (const input of form.querySelectorAll('[data-die]')) input.value = dice[input.dataset.die];
+      const skin = options.theme_customColorset || {};
+      set('material', skin.material);
+      set('dice_colour', skin.background);
+      set('number_colour', skin.foreground);
+      set('texture', skin.texture);
+      resetTuning(); // start from the material's own values, then lay the file's on top
+      set('azimuth', options.light_direction?.azimuth);
+      set('elevation', options.light_direction?.elevation);
+      for (const name of ['shadow_softness', 'shadow_opacity', 'light_intensity', 'shadow_quality', 'edge_roundness',
+        'fill_intensity', 'fill_color', 'color_spotlight', 'rim_intensity', 'rim_color',
+        'reflections_follow_light', 'normal_maps']) set(name, options[name]);
+      for (const [name, value] of Object.entries(options.material_tuning || {})) set(name, value);
+      set('table', data.playground?.table);
+      for (const input of form.querySelectorAll('[data-die]')) {
+        const count = data.playground?.dice?.[input.dataset.die];
+        if (count !== undefined) input.value = count;
+      }
+      labels();
+      await box.updateConfig({ ...settings(), theme_customColorset: colorset(form.material.value), sounds: true });
+      rollDice();
+    };
+    Object.assign(window, { exportSettings, importSettings });
+    // Random: a recipe that is known to look good, with knobs varied inside its safe range.
+    document.querySelector('#random').addEventListener('click', async () => {
+      form.preset.value = '';
+      await importSettings(randomLook());
+      fileMessage('Random look. Export it if you like it.');
+    });
+    // Saved looks from demo/presets.
+    fetch('./presets/index.json').then(response => response.json()).then(presets => {
+      for (const preset of presets) form.preset.append(new Option(preset.name, preset.file));
+    }).catch(() => { form.preset.disabled = true; });
+    const fileMessage = text => { document.querySelector('#file-message').textContent = text; };
+    document.querySelector('#export').addEventListener('click', () => {
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([JSON.stringify(exportSettings(), null, 2) + '\n'], { type: 'application/json' }));
+      link.download = 'dice-settings.json';
+      link.click();
+      URL.revokeObjectURL(link.href);
+      fileMessage('Saved dice-settings.json');
+    });
+    const importFile = document.querySelector('#import-file');
+    document.querySelector('#import').addEventListener('click', () => importFile.click());
+    importFile.addEventListener('change', async () => {
+      const file = importFile.files[0];
+      importFile.value = ''; // so the same file can be picked again
+      if (!file) return;
+      try {
+        await importSettings(JSON.parse(await file.text()));
+        fileMessage(`Loaded ${file.name}`);
+      } catch (error) {
+        fileMessage(`Could not load ${file.name}: ${error.message}`);
+      }
+    });
+    // Tapping anywhere on the table rolls. The menu sits on top of it, so taps
+    // on the controls never reach this handler.
+    document.querySelector('#dice').addEventListener('click', () => {
       if (audioContext?.state === 'suspended') audioContext.resume().catch(console.warn);
       rollDice();
     });

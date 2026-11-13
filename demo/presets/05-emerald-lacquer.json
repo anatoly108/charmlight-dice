@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "Emerald Lacquer",
+  "description": "Deep green with cloudy depth under a glossy coat.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#fff1dc",
+    "fill_color": "#ffe9c4",
+    "rim_color": "#ffd0a0",
+    "rim_intensity": 0.4,
+    "material_tuning": {
+      "clearcoat": 1,
+      "clearcoat_roughness": 0.1,
+      "reflections": 0.7
+    },
+    "theme_customColorset": {
+      "name": "Emerald Lacquer",
+      "background": "#165743",
+      "foreground": "#f9df9c",
+      "outline": "#081e17",
+      "texture": "cloudy_2",
+      "material": "plastic"
+    }
+  }
+}

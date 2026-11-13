@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "Molten Gold",
+  "description": "Polished gold with dark numbers.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#fff1dc",
+    "fill_color": "#ffe9c4",
+    "rim_color": "#ffd0a0",
+    "rim_intensity": 0.3,
+    "material_tuning": {
+      "roughness": 0.25,
+      "anisotropy": 0.2
+    },
+    "theme_customColorset": {
+      "name": "Molten Gold",
+      "background": "#d4a12a",
+      "foreground": "#2a1a00",
+      "outline": "#4a380f",
+      "texture": "none",
+      "material": "metal"
+    }
+  }
+}

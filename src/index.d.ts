@@ -15,7 +15,42 @@ export interface LightVector {
 
 export type LightDirection = LightAngles | LightVector
 
-export type DiceMaterial = 'none' | 'metal' | 'wood' | 'glass' | 'plastic' | 'perfectmetal'
+/** "none" is Phong plastic: a big soft sheen, no reflections. "plastic" is PBR plastic: physically based, with studio reflections. */
+export type DiceMaterial = 'none' | 'plastic' | 'metal' | 'wood' | 'glass' | 'perfectmetal'
+/** Every key is optional. A missing key keeps the material's own value. */
+export interface MaterialTuning {
+  /** Base colour multiplier, every material. 1 = unchanged. */
+  brightness?: number
+  /** Relief strength multiplier, every material. 0 = smooth, 1 = unchanged. */
+  texture_depth?: number
+  /** Every material: how strongly the numbers emit their own light. 0 = off. */
+  glow?: number
+  /** Every material: colour of that light. Default: the number colour. */
+  glow_color?: number | string
+  /** Phong plastic only: strength of the soft white sheen. 0 = none, 1 = full. */
+  sheen?: number
+  /** Phong plastic only: how tight the sheen is. 5 = wide and soft (default), 60 = a small sharp highlight. */
+  sheen_tightness?: number
+  /** PBR materials only: 0 = mirror-smooth, 1 = fully matte. */
+  roughness?: number
+  /** PBR materials only: 0 = plastic-like, 1 = metal. */
+  metalness?: number
+  /** PBR materials only: share of the studio environment the die takes. 0 = none, 1 = all of it. */
+  reflections?: number
+  /** PBR materials only: glossy lacquer layer over the colour. 0 = none, 1 = full. */
+  clearcoat?: number
+  /** PBR materials only: 0 = glass-smooth lacquer, 1 = satin. */
+  clearcoat_roughness?: number
+  /** PBR materials only: pearly colour shift as the die turns. 0 = none, 1 = full. */
+  iridescence?: number
+  /** PBR materials only: thickness of the colour-shifting film in nanometres, 100 to 900. It picks the colours. Default 400. */
+  iridescence_thickness?: number
+  /** PBR materials only: stretches highlights along a grain, as on brushed metal. 0 = none, 1 = full. */
+  anisotropy?: number
+  /** PBR materials only: direction of that grain on each face, in degrees. */
+  anisotropy_angle?: number
+}
+
 export type ShadowQuality = 'auto' | 'low' | 'medium' | 'high'
 export type DiceColor = string | string[]
 
@@ -63,7 +98,7 @@ export interface DiceBoxOptions {
   framerate?: number
   sounds?: boolean
   volume?: number
-  /** Color of the key light. Default 0xefdfd5. */
+  /** Colour of the main light. Warm it up or cool it down here. Default 0xefdfd5. */
   color_spotlight?: number | string
   shadows?: boolean
   theme_surface?: string
@@ -85,6 +120,22 @@ export interface DiceBoxOptions {
   shadow_softness?: number
   /** Lights in the soft key light: low = 1, medium = 3, high = 5. Default "auto". */
   shadow_quality?: ShadowQuality
+  /** 0 = hard bevelled edges, 1 = soft (default), 2 = softer and wider. Applies to dice thrown afterwards. */
+  edge_roundness?: number
+  /** Fine-tuning of the dice surface. Applies at once, also to dice already on the table. */
+  material_tuning?: MaterialTuning
+  /** Soft light from all around: 0 = deep shadows on the dice, 1 = default, 2 = flat. */
+  fill_intensity?: number
+  /** Colour of the soft light from all around. Default 0xffffbb. */
+  fill_color?: number | string
+  /** Light from behind the dice, opposite the main one. 0 = off (default), 1 = as strong as the main light. */
+  rim_intensity?: number
+  /** Default 0xdfe8ff. */
+  rim_color?: number | string
+  /** Turn the studio reflections with the main light, so highlights and shadows agree. Default true. */
+  reflections_follow_light?: boolean
+  /** Surface relief from normal maps instead of bump maps. Applies to dice thrown afterwards. Default true. */
+  normal_maps?: boolean
   baseScale?: number
   /** Toss strength. Default 1. */
   strength?: number

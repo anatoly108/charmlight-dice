@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "name": "Antique Bronze",
+  "description": "Weathered bronze with a violet patina.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#ffd9a8",
+    "fill_color": "#c8d6ff",
+    "rim_color": "#9ec1ff",
+    "rim_intensity": 0.3,
+    "material_tuning": {
+      "roughness": 0.45
+    },
+    "theme_customColorset": {
+      "name": "Antique Bronze",
+      "background": "#48364e",
+      "foreground": "#f4d899",
+      "outline": "#19131b",
+      "texture": "bronze01",
+      "material": "metal"
+    }
+  }
+}
