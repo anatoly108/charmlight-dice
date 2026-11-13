@@ -289,23 +289,13 @@ class DiceBox {
 	}
 
 	async updateConfig(options = {}){
-		// if(options.scale && this.scale !== options.scale){
-		// 	this.DiceFactory.updateConfig({
-		// 		scale: options.scale
-		// 	})
-		// }
-		Object.apply(this,options)
-		this.theme_customColorset = options.theme_customColorset ? options.theme_customColorset : null
-		if(options.theme_colorset){
-			this.theme_colorset = options.theme_colorset
+		Object.assign(this,options)
+		// Only explicitly supplied theme fields trigger a reload. This preserves
+		// a custom finish during unrelated updates and accepts null/empty resets.
+		if ('theme_customColorset' in options) {
+			this.theme_customColorset = options.theme_customColorset || null
 		}
-		if(options.theme_texture){
-			this.theme_texture = options.theme_texture
-		}
-		if(options.theme_material){
-			this.theme_material = options.theme_material
-		}
-		if(options.theme_colorset || options.theme_texture || options.theme_material || options.theme_customColorset){
+		if ('theme_colorset' in options || 'theme_texture' in options || 'theme_material' in options || 'theme_customColorset' in options){
 			await this.loadTheme({
 				colorset: this.theme_colorset,
 				texture: this.theme_texture,
@@ -313,6 +303,10 @@ class DiceBox {
 			})
 		}
 
+		// Match initialize(): callers can await the impact clips being ready.
+		if (options.sounds) {
+			await this.loadSounds()
+		}
 	}
 
 	setDimensions(dimensions) {
@@ -691,10 +685,13 @@ class DiceBox {
 
 			let sound;
 
+			// Sound banks may still be loading after a runtime configuration update.
 			if(body.diceShape === "d2") {
+				if (!this.sounds_dice['coin']?.length) return;
 				sound = this.sounds_dice['coin'][Math.floor(Math.random() * this.sounds_dice['coin'].length)];
 			}
 			else {
+				if (!this.sounds_dice[this.sound_dieMaterial]?.length) return;
 				sound = this.sounds_dice[this.sound_dieMaterial][Math.floor(Math.random() * this.sounds_dice[this.sound_dieMaterial].length)];
 			}
 			if(sound){
@@ -720,6 +717,7 @@ class DiceBox {
 			let surface = this.surface;
 
 			let soundlist = this.sounds_table[surface];
+			if (!soundlist?.length) return;
 			let sound = soundlist[Math.floor(Math.random() * soundlist.length)];
 			if(sound){
 				sound.volume = Math.min(speed / 8000, this.volume/100)
@@ -988,7 +986,8 @@ class DiceBox {
 	async reroll(diceIdArray) {
 		this.rolling = true;
 		this.running = Date.now();
-		this.iteration = 0
+		this.iteration = 0;
+		this.last_time = 0; // fix the animation: starts from the beginning
 		return new Promise((resolve,reject) => {
 			diceIdArray.forEach(dieId => {
 				const dicemesh = this.diceList[dieId]
@@ -1144,5 +1143,6 @@ class DiceBox {
 
 	}
 }
+
 
 export { DiceBox }
