@@ -244,33 +244,6 @@ export const COLORSETS = {
 		texture: 'fire',
 		description: 'Covid-19'
 	},
-	'acleaf': {
-		name: 'Animal Crossing',
-		category: 'Other',
-		foreground: '#00FF00',
-		background: '#07540A',
-		outline: 'black',
-		texture: 'acleaf',
-		description: 'Animal Crossing Leaf'
-	},
-	'isabelle': {
-		name: 'Isabelle',
-		category: 'Other',
-		foreground: 'white',
-		background: '#FEE5CC',
-		outline: 'black',
-		texture: 'isabelle',
-		description: 'Isabelle'
-	},
-	'thecage': {
-		name: 'Nicholas Cage',
-		category: 'Other',
-		foreground: '#ffffff',
-		background: '#ffffff',
-		outline: 'black',
-		texture: 'thecage',
-		description: 'Nicholas Cage'
-	},
 	'test': {
 		name: 'Test',
 		category: 'Colors',

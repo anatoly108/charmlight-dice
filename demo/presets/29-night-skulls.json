@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "Night Skulls",
+  "description": "Charcoal with a skull pattern and bone numbers.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#dfeaff",
+    "fill_color": "#eef3ff",
+    "rim_color": "#ffffff",
+    "rim_intensity": 0.5,
+    "material_tuning": {
+      "clearcoat": 0.6,
+      "clearcoat_roughness": 0.3,
+      "texture_depth": 1.5
+    },
+    "theme_customColorset": {
+      "name": "Night Skulls",
+      "background": "#26262c",
+      "foreground": "#e9e2d0",
+      "outline": "#0d0d0f",
+      "texture": "skulls",
+      "material": "plastic"
+    }
+  }
+}

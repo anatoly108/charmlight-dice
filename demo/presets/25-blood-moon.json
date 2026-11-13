@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "Blood Moon",
+  "description": "Dark red metal with ember numbers.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#ffd9a8",
+    "fill_color": "#c8d6ff",
+    "rim_color": "#ff5a4a",
+    "rim_intensity": 0.6,
+    "material_tuning": {
+      "roughness": 0.4,
+      "glow": 0.5,
+      "glow_color": "#ff8a3a"
+    },
+    "theme_customColorset": {
+      "name": "Blood Moon",
+      "background": "#5a0f14",
+      "foreground": "#ffb347",
+      "outline": "#1f0507",
+      "texture": "fire",
+      "material": "metal"
+    }
+  }
+}

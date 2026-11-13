@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "Royal Amethyst",
+  "description": "Deep violet gem with gold numbers.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "rim_intensity": 0.5,
+    "material_tuning": {
+      "clearcoat": 1,
+      "clearcoat_roughness": 0.1,
+      "iridescence": 0.25,
+      "iridescence_thickness": 450,
+      "reflections": 0.8
+    },
+    "theme_customColorset": {
+      "name": "Royal Amethyst",
+      "background": "#4b1f7a",
+      "foreground": "#f6d98a",
+      "outline": "#1a0b2b",
+      "texture": "none",
+      "material": "plastic"
+    }
+  }
+}

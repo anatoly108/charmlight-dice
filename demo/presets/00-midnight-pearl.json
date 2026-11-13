@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "Midnight Pearl",
+  "description": "Dark navy that shifts green and violet as it turns.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 45
+    },
+    "material_tuning": {
+      "roughness": 0.25,
+      "reflections": 1,
+      "clearcoat": 1,
+      "clearcoat_roughness": 0.15,
+      "iridescence": 1,
+      "iridescence_thickness": 420
+    },
+    "theme_customColorset": {
+      "name": "Midnight Pearl",
+      "background": "#2a2d3a",
+      "foreground": "#ffe2a3",
+      "outline": "#0f1014",
+      "texture": "none",
+      "material": "plastic"
+    }
+  }
+}

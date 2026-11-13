@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "name": "Tiger Eye",
+  "description": "Striped amber with a glassy coat.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#fff1dc",
+    "fill_color": "#ffe9c4",
+    "rim_color": "#ffd0a0",
+    "material_tuning": {
+      "clearcoat": 1,
+      "clearcoat_roughness": 0.15
+    },
+    "theme_customColorset": {
+      "name": "Tiger Eye",
+      "background": "#c77a1a",
+      "foreground": "#fff4d6",
+      "outline": "#462b09",
+      "texture": "tiger",
+      "material": "plastic"
+    }
+  }
+}

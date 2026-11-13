@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "name": "Stained Glass",
+  "description": "Leaded glass panes in ruby red.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#fff1dc",
+    "fill_color": "#ffe9c4",
+    "rim_color": "#ffd0a0",
+    "rim_intensity": 0.4,
+    "material_tuning": {
+      "reflections": 0.6,
+      "clearcoat": 1,
+      "clearcoat_roughness": 0.1,
+      "texture_depth": 1.5
+    },
+    "theme_customColorset": {
+      "name": "Stained Glass",
+      "background": "#b03a3a",
+      "foreground": "#fff4d6",
+      "outline": "#3e1414",
+      "texture": "stainedglass",
+      "material": "glass"
+    }
+  }
+}

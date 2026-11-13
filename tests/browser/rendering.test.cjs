@@ -22,7 +22,7 @@ before(async () => {
 after(async () => { await browser?.close(); await server?.close(); });
 
 for (const viewport of [{ width: 900, height: 600 }, { width: 390, height: 844 }]) {
-  for (const material of ['none', 'metal', 'glass', 'wood']) {
+  for (const material of ['none', 'plastic', 'metal', 'glass', 'wood']) {
     test(`${material} dice render and complete supplied rolls at ${viewport.width}px`, { timeout: 90_000 }, async () => {
       const page = await browser.newPage({ viewport, deviceScaleFactor: viewport.width < 500 ? 3 : 1 });
       const errors = [];
@@ -69,6 +69,10 @@ for (const viewport of [{ width: 900, height: 600 }, { width: 390, height: 844 }
           box.renderer.render(box.scene, box.camera);
           gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
           box.scene.environment = null;
+          // Dice materials hold their own reference to the environment.
+          const materials = box.diceList.flatMap(die => die.material);
+          const envMaps = materials.map(material => material.envMap);
+          for (const material of materials) { material.envMap = null; material.needsUpdate = true; }
           box.renderer.render(box.scene, box.camera);
           gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, comparison);
           let reflected = 0;
@@ -76,6 +80,7 @@ for (const viewport of [{ width: 900, height: 600 }, { width: 390, height: 844 }
             reflected += Math.max(0, pixels[i] + pixels[i + 1] + pixels[i + 2] - comparison[i] - comparison[i + 1] - comparison[i + 2]);
           }
           box.scene.environment = environment;
+          materials.forEach((material, index) => { material.envMap = envMaps[index]; material.needsUpdate = true; });
           box.lights.forEach((light, index) => { light.intensity = direct[index]; });
           box.light_amb.intensity = fill;
 
@@ -100,13 +105,32 @@ for (const viewport of [{ width: 900, height: 600 }, { width: 390, height: 844 }
             return (shadowX / weight - diceX / dice) / gl.drawingBufferWidth;
           };
           const fromRight = shadowOffset(90), fromLeft = shadowOffset(270);
+
+          // Every optional layer at once: each one compiles new shader code.
+          const face = box.diceList[0].material[1];
+          const relief = { normal: Boolean(face.normalMap), bump: Boolean(face.bumpMap), glowMask: Boolean(face.userData.glowMap) };
+          const lit = () => {
+            box.renderer.render(box.scene, box.camera);
+            gl.readPixels(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+            let sum = 0;
+            for (let i = 0; i < pixels.length; i += 4) if (pixels[i + 3] > 250) sum += pixels[i] + pixels[i + 1] + pixels[i + 2];
+            return sum;
+          };
+          const plain = lit();
+          await box.updateConfig({ rim_intensity: 0.6, material_tuning: {
+            glow: 2, clearcoat: 1, clearcoat_roughness: 0.2, iridescence: 1, anisotropy: 0.8, texture_depth: 2, sheen: 0.5,
+          } });
+          const layered = lit();
+          const layerError = gl.getError();
+          await box.updateConfig({ rim_intensity: 0, material_tuning: {} });
+          const restored = lit();
           box.updateConfig({ light_direction: { azimuth: 315, elevation: 58 } });
           box.renderer.render(box.scene, box.camera);
           return {
             revision, values: result.sets[0].rolls.map(die => die.value),
             faces: box.diceList.map(die => die.getFaceValue().value),
             visible, bright, glError: gl.getError(),
-            shadow, reflected, fromRight, fromLeft, lights: box.lights.length, pixelRatio: box.renderer.getPixelRatio(),
+            shadow, reflected, fromRight, fromLeft, relief, plain, layered, layerError, restored, lights: box.lights.length, pixelRatio: box.renderer.getPixelRatio(),
             toneMapping: box.renderer.toneMapping,
             environment: Boolean(box.scene.environment),
             webglVersion: gl.getParameter(gl.VERSION),
@@ -126,6 +150,10 @@ for (const viewport of [{ width: 900, height: 600 }, { width: 390, height: 844 }
         if (material !== 'none') assert.ok(state.reflected > 1000, 'studio environment must contribute reflected light');
         assert.ok(state.shadow > 100, 'grounded dice must draw soft shadow pixels');
         assert.equal(state.lights, viewport.width < 500 ? 3 : 5);
+        assert.deepEqual(state.relief, { normal: true, bump: false, glowMask: true }, 'faces must carry a normal map and a glow mask');
+        assert.equal(state.layerError, 0, 'the optional material layers must compile and draw');
+        assert.ok(state.layered > state.plain * 1.02, `glow and rim light must add light: ${state.plain} -> ${state.layered}`);
+        assert.ok(Math.abs(state.restored - state.plain) < state.plain * 0.005, 'dropping the tuning must restore the look');
         assert.ok(state.fromRight < -0.002, `a light on the right must throw shadows to the left: ${state.fromRight}`);
         assert.ok(state.fromLeft > 0.002, `a light on the left must throw shadows to the right: ${state.fromLeft}`);
         assert.ok(state.colorSpaces.every(colorSpace => colorSpace === 'srgb'));

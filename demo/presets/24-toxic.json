@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "Toxic",
+  "description": "Swampy green with numbers glowing acid lime.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "rim_intensity": 0.4,
+    "rim_color": "#b8ff6a",
+    "fill_intensity": 0.7,
+    "material_tuning": {
+      "glow": 1.4,
+      "glow_color": "#d6ff4a",
+      "clearcoat": 0.7,
+      "clearcoat_roughness": 0.25
+    },
+    "theme_customColorset": {
+      "name": "Toxic",
+      "background": "#2f5f12",
+      "foreground": "#d6ff4a",
+      "outline": "#102106",
+      "texture": "cloudy_2",
+      "material": "plastic"
+    }
+  }
+}

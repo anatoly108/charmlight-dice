@@ -33,6 +33,19 @@ const defaultConfig = {
 	shadow_color: 0x000000,
 	shadow_softness: 1, // size of the light source: 0 = hard edges, 2 = very soft
 	shadow_quality: "auto", // "auto" | "low" | "medium" | "high"
+	edge_roundness: 1, // 0 = hard bevelled edges, 1 = soft, 2 = softer and wider
+	// Fine-tuning of the dice surface, see "Material tuning" in the README.
+	material_tuning: {},
+	fill_intensity: 1, // soft light from all around: 0 = deep shadows on the dice, 2 = flat
+	fill_color: 0xffffbb, // colour of that soft light
+	// A second light from behind the dice, opposite the main one. It draws a
+	// bright line along their far edges. 0 = off, 1 = as strong as the main light.
+	rim_intensity: 0,
+	rim_color: 0xdfe8ff,
+	// Turn the studio reflections with the main light, so highlights and shadows agree.
+	reflections_follow_light: true,
+	// Surface relief from normal maps instead of bump maps. Applies to dice thrown afterwards.
+	normal_maps: true,
 	baseScale: 100,
 	strength: 1,
 	iterationLimit: 1000,
@@ -47,8 +60,12 @@ const SHADOW_QUALITY = {
 	medium: { lights: 3, mapSize: 1024 },
 	high: { lights: 5, mapSize: 2048 },
 }
-const LIGHT_KEYS = ['light_direction', 'light_intensity', 'color_spotlight', 'shadow_opacity', 'shadow_color', 'shadow_softness', 'shadow_quality']
+const LIGHT_KEYS = ['light_direction', 'light_intensity', 'color_spotlight', 'shadow_opacity', 'shadow_color', 'shadow_softness', 'shadow_quality', 'fill_intensity', 'fill_color', 'rim_intensity', 'rim_color', 'reflections_follow_light']
 const MIN_LIGHT_ELEVATION = THREE.MathUtils.degToRad(15)
+const RIM_ELEVATION = THREE.MathUtils.degToRad(25)
+// Compass direction of the brightest side of the unturned studio room, measured
+// from its reflection in a mirror ball.
+const ENVIRONMENT_BRIGHT_AZIMUTH = THREE.MathUtils.degToRad(160)
 // Half the angle the softbox covers in the sky at shadow_softness 1.
 const SOFTBOX_ANGLE = 4
 // Rough height of a resting die, used to size the shadow blur.
@@ -153,6 +170,7 @@ class DiceBox {
 		this.light;
 		this.lights = [];
 		this.light_amb;
+		this.light_rim = null;
 		this.desk;
 		this.box_body = {};
 		this.bodies = [];
@@ -191,7 +209,10 @@ class DiceBox {
 
 		this.DiceColors = new DiceColors({assetPath: this.assetPath});
 		this.DiceFactory = new DiceFactory({
-			baseScale: this.baseScale
+			baseScale: this.baseScale,
+			edgeRoundness: this.edge_roundness,
+			materialTuning: this.material_tuning,
+			normalMaps: this.normal_maps !== false
 		});
 		this.DiceFactory.setBumpMapping(true);
 
@@ -268,6 +289,12 @@ class DiceBox {
 			light.dispose();
 		}
 		if (this.light_amb) this.scene.remove(this.light_amb);
+		if (this.light_rim) {
+			this.scene.remove(this.light_rim.target);
+			this.scene.remove(this.light_rim);
+			this.light_rim.dispose();
+			this.light_rim = null;
+		}
 
 		const width = this.display.containerWidth, height = this.display.containerHeight;
 		const maxwidth = Math.max(width, height);
@@ -331,9 +358,32 @@ class DiceBox {
 		}
 		this.light = this.lights[0];
 
-		this.light_amb = new THREE.HemisphereLight( 0xffffbb, 0x676771, this.light_intensity * Math.PI * 0.3 );
+		this.light_amb = new THREE.HemisphereLight( this.fill_color ?? 0xffffbb, 0x676771, this.light_intensity * Math.PI * 0.3 * Math.max(0, Number(this.fill_intensity ?? 1) || 0) );
 		this.scene.add(this.light_amb);
 		this.scene.environmentIntensity = this.light_intensity;
+
+		// Rim light: low and directly opposite the main light. It casts no shadow.
+		const rim = Math.max(0, Number(this.rim_intensity) || 0);
+		if (rim > 0) {
+			this.light_rim = new THREE.DirectionalLight(this.rim_color ?? 0xdfe8ff, this.light_intensity * Math.PI * rim);
+			const flat = Math.hypot(direction.x, direction.y);
+			const away = flat > 1e-6 ? { x: -direction.x / flat, y: -direction.y / flat } : { x: 0, y: -1 };
+			this.light_rim.position.set(away.x * Math.cos(RIM_ELEVATION), away.y * Math.cos(RIM_ELEVATION), Math.sin(RIM_ELEVATION)).multiplyScalar(maxwidth * 4);
+			this.light_rim.target.position.set(0, 0, 0);
+			this.scene.add(this.light_rim.target);
+			this.scene.add(this.light_rim);
+		}
+		// RoomEnvironment is Y-up; the dice board is Z-up. Turn the room so its
+		// brightest side sits where the main light is: reflections then come from
+		// the same side as the light that casts the shadows.
+		const flatLength = Math.hypot(direction.x, direction.y);
+		const turn = this.reflections_follow_light !== false && flatLength > 1e-6
+			? ENVIRONMENT_BRIGHT_AZIMUTH - Math.atan2(direction.x, direction.y) : 0;
+		this.scene.environmentRotation.set(Math.PI / 2, turn, 0);
+		this.DiceFactory.setEnvironment(this.scene.environment, this.scene.environmentRotation, this.light_intensity);
+		for (const dicemesh of this.diceList) {
+			for (const material of [].concat(dicemesh.material)) this.DiceFactory.applyEnvironment(material);
+		}
 
 		if (this.desk) {
 			this.desk.material.color.set(this.shadow_color);
@@ -408,6 +458,12 @@ class DiceBox {
 		this.lights = [];
 		this.light = null;
 		if (this.light_amb) this.scene.remove(this.light_amb);
+		if (this.light_rim) {
+			this.scene.remove(this.light_rim.target);
+			this.scene.remove(this.light_rim);
+			this.light_rim.dispose();
+			this.light_rim = null;
+		}
 		if (this.desk) {
 			this.scene.remove(this.desk);
 			this.desk.geometry.dispose();
@@ -616,6 +672,21 @@ class DiceBox {
 			})
 		}
 
+		if ('edge_roundness' in options) {
+			// Applies to dice thrown from now on.
+			this.DiceFactory.setEdgeRoundness(this.edge_roundness)
+		}
+		if ('normal_maps' in options) {
+			this.DiceFactory.normalMaps = this.normal_maps !== false
+		}
+		if ('material_tuning' in options) {
+			// Applies at once, also to dice already on the table.
+			this.DiceFactory.setMaterialTuning(this.material_tuning)
+			for (const dicemesh of this.diceList) {
+				for (const material of [].concat(dicemesh.material)) this.DiceFactory.applyMaterialTuning(material)
+			}
+			if (this.renderer && this.camera) this.render()
+		}
 		if ('shadows' in options) {
 			this.setShadows(options.shadows)
 		}

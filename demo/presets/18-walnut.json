@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "name": "Walnut",
+  "description": "Dark oiled wood with cream numbers.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#fff1dc",
+    "fill_color": "#ffe9c4",
+    "rim_color": "#ffd0a0",
+    "material_tuning": {
+      "reflections": 0.3,
+      "texture_depth": 1.5
+    },
+    "theme_customColorset": {
+      "name": "Walnut",
+      "background": "#6b4226",
+      "foreground": "#f3e1c0",
+      "outline": "#25170d",
+      "texture": "wood",
+      "material": "wood"
+    }
+  }
+}

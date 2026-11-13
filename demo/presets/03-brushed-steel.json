@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "name": "Brushed Steel",
+  "description": "Cool brushed steel with gold numbers.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#dfeaff",
+    "fill_color": "#eef3ff",
+    "rim_color": "#ffffff",
+    "rim_intensity": 0.3,
+    "material_tuning": {
+      "roughness": 0.35,
+      "anisotropy": 0.5
+    },
+    "theme_customColorset": {
+      "name": "Brushed Steel",
+      "background": "#b9bcc4",
+      "foreground": "#e3b34d",
+      "outline": "#414245",
+      "texture": "brushed",
+      "material": "metal"
+    }
+  }
+}

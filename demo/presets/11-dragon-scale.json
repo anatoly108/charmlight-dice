@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "name": "Dragon Scale",
+  "description": "Green scales with real relief under a light gloss.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 45
+    },
+    "color_spotlight": "#ffd9a8",
+    "fill_color": "#c8d6ff",
+    "rim_color": "#9ec1ff",
+    "fill_intensity": 1.2,
+    "material_tuning": {
+      "texture_depth": 2,
+      "clearcoat": 0.5,
+      "clearcoat_roughness": 0.25,
+      "brightness": 1.6,
+      "reflections": 0.8
+    },
+    "theme_customColorset": {
+      "name": "Dragon Scale",
+      "background": "#2f6b3a",
+      "foreground": "#f6d98a",
+      "outline": "#102514",
+      "texture": "dragon",
+      "material": "plastic"
+    }
+  }
+}

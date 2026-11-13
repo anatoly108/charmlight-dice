@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "name": "Deep Sea",
+  "description": "Dark teal water with a faint shimmer.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#dfeaff",
+    "fill_color": "#eef3ff",
+    "rim_color": "#ffffff",
+    "rim_intensity": 0.4,
+    "material_tuning": {
+      "clearcoat": 1,
+      "clearcoat_roughness": 0.1,
+      "iridescence": 0.3,
+      "iridescence_thickness": 480,
+      "reflections": 0.7
+    },
+    "theme_customColorset": {
+      "name": "Deep Sea",
+      "background": "#0e4d6e",
+      "foreground": "#c9f4ff",
+      "outline": "#051b26",
+      "texture": "water",
+      "material": "plastic"
+    }
+  }
+}

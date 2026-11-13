@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "name": "Frost",
+  "description": "Pale blue ice, clear and cold.",
+  "options": {
+    "light_direction": {
+      "azimuth": 315,
+      "elevation": 52
+    },
+    "color_spotlight": "#dfeaff",
+    "fill_color": "#eef3ff",
+    "rim_color": "#ffffff",
+    "rim_intensity": 0.5,
+    "material_tuning": {
+      "reflections": 0.5,
+      "clearcoat": 1,
+      "clearcoat_roughness": 0.1
+    },
+    "theme_customColorset": {
+      "name": "Frost",
+      "background": "#bfe6ff",
+      "foreground": "#1d3b5c",
+      "outline": "#435059",
+      "texture": "ice",
+      "material": "glass"
+    }
+  }
+}
