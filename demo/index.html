@@ -11,8 +11,15 @@
     body.light { background: radial-gradient(circle at 50% 40%, #f3ead8, #cdbf9f); }
     body.dark { background: #17151d; }
     #dice { position: fixed; inset: 0; }
-    form { position: fixed; top: 12px; left: 12px; width: 230px; padding: 12px; border-radius: 10px;
+    form { position: fixed; top: 12px; left: 12px; width: max-content; max-width: calc(100vw - 24px); padding: 10px; border-radius: 10px;
       background: rgba(20, 20, 24, .78); display: grid; gap: 8px; }
+    details[open] { width: min(210px, calc(100vw - 44px)); max-height: min(70vh, 540px); overflow-y: auto; }
+    summary { cursor: pointer; padding: 5px 2px; color: #f4d899; }
+    details label { margin-top: 8px; }
+    .dice-choice { align-items: center; }
+    .dice-choice input { width: 64px; padding: 5px; font: inherit; }
+    #roll-message { color: #ffcf9e; max-width: 210px; }
+    summary:focus-visible, button:focus-visible { outline: 2px solid #e8c877; outline-offset: 3px; }
     label { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; }
     label input[type=range], label select { grid-column: 1 / -1; width: 100%; margin: 0; }
     output { opacity: .7; font-variant-numeric: tabular-nums; }
@@ -22,14 +29,32 @@
 <body>
   <div id="dice"></div>
   <form id="controls">
+    <details>
+    <summary>Lighting settings</summary>
     <label>Light azimuth <output></output><input name="azimuth" type="range" min="0" max="360" value="315"></label>
     <label>Light elevation <output></output><input name="elevation" type="range" min="15" max="90" value="58"></label>
     <label>Shadow softness <output></output><input name="shadow_softness" type="range" min="0" max="3" step="0.1" value="1"></label>
     <label>Shadow opacity <output></output><input name="shadow_opacity" type="range" min="0" max="1" step="0.05" value="0.5"></label>
     <label>Light intensity <output></output><input name="light_intensity" type="range" min="0.2" max="1.5" step="0.05" value="0.7"></label>
     <label>Shadow quality<select name="shadow_quality"><option>auto</option><option>low</option><option>medium</option><option>high</option></select></label>
-    <label>Dice material<select name="material"><option>metal</option><option>glass</option><option>wood</option><option>none</option></select></label>
     <label>Table<select name="table"><option value="">felt</option><option>light</option><option>dark</option></select></label>
+    </details>
+    <details>
+      <summary>Dice appearance</summary>
+      <label>Skin<select name="skin"><option value="bronze">Bronze &amp; violet</option><option value="obsidian">Obsidian stars</option><option value="ivory">Ivory marble</option><option value="emerald">Emerald cloud</option><option value="crimson" selected>Crimson flame</option></select></label>
+      <label>Material<select name="material"><option value="metal">Metal</option><option value="glass">Glass</option><option value="wood">Wood</option><option value="none" selected>Plastic</option></select></label>
+    </details>
+    <details>
+      <summary>Choose dice</summary>
+      <label class="dice-choice">d4 <input data-die="d4" type="number" min="0" max="10" value="0" inputmode="numeric"></label>
+      <label class="dice-choice">d6 <input data-die="d6" type="number" min="0" max="10" value="0" inputmode="numeric"></label>
+      <label class="dice-choice">d8 <input data-die="d8" type="number" min="0" max="10" value="0" inputmode="numeric"></label>
+      <label class="dice-choice">d10 <input data-die="d10" type="number" min="0" max="10" value="0" inputmode="numeric"></label>
+      <label class="dice-choice">d12 <input data-die="d12" type="number" min="0" max="10" value="0" inputmode="numeric"></label>
+      <label class="dice-choice">d20 <input data-die="d20" type="number" min="0" max="10" value="3" inputmode="numeric"></label>
+      <label class="dice-choice">d100 <input data-die="d100" type="number" min="0" max="10" value="0" inputmode="numeric"></label>
+    </details>
+    <span id="roll-message" role="status" aria-live="polite"></span>
     <button type="button" id="roll">Roll</button>
   </form>
   <script type="module">
@@ -37,10 +62,16 @@
     const form = document.querySelector('#controls');
     const query = new URLSearchParams(location.search);
     for (const [key, value] of query) if (form.elements[key]) form.elements[key].value = value;
+    const skins = {
+      bronze: { foreground: '#f4d899', background: '#48364e', outline: '#181220', texture: 'bronze01' },
+      obsidian: { foreground: '#e8e7ff', background: '#171628', outline: '#050510', texture: 'stars' },
+      ivory: { foreground: '#392a22', background: '#f2e5ce', outline: '#b59b78', texture: 'marble' },
+      emerald: { foreground: '#f9df9c', background: '#165743', outline: '#06291d', texture: 'cloudy' },
+      crimson: { foreground: '#ffe2a3', background: '#8c2026', outline: '#320b12', texture: 'fire' },
+    };
     const colorset = material => ({
-      name: `Playground ${material}`,
-      foreground: '#f4d899', background: '#48364e', outline: '#181220',
-      texture: 'bronze01', material,
+      name: `Playground ${form.skin.value} ${material}`,
+      ...(skins[form.skin.value] || skins.bronze), material,
     });
     const settings = () => ({
       light_direction: { azimuth: +form.azimuth.value, elevation: +form.elevation.value },
@@ -53,21 +84,65 @@
       for (const input of form.querySelectorAll('input[type=range]')) input.previousElementSibling.textContent = input.value;
       document.body.className = form.table.value;
     };
+    const diceNotation = () => [...form.querySelectorAll('[data-die]')].map(input => {
+      const count = Math.max(0, Math.min(10, Math.floor(Number(input.value) || 0)));
+      return count ? `${count}${input.dataset.die}` : '';
+    }).filter(Boolean).join('+');
+    const rollDice = () => {
+      const notation = diceNotation();
+      document.querySelector('#roll-message').textContent = notation ? '' : 'Choose at least one die.';
+      if (notation) return box.roll(notation);
+    };
     labels();
     const box = window.box = new DiceBox('#dice', {
-      assetPath: '/', ...settings(), theme_customColorset: colorset(form.material.value),
+      assetPath: '/', sounds: true, ...settings(), theme_customColorset: colorset(form.material.value),
     });
-    window.ready = box.initialize().then(() => box.roll(query.get('roll') || '2d20+2d6+1d12+1d8+1d4'));
+    // iOS requires audio to be unlocked by a user gesture. Play decoded clips
+    // through one context, which can be resumed synchronously when Roll is tapped.
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    const audioContext = AudioContextClass ? new AudioContextClass() : null;
+    if (audioContext) {
+      const loadAudio = box.loadAudio.bind(box);
+      box.loadAudio = async src => {
+        try {
+          const response = await fetch(src);
+          if (!response.ok) throw new Error(`Sound request failed: ${response.status}`);
+          const buffer = await audioContext.decodeAudioData(await response.arrayBuffer());
+          return {
+            volume: 1,
+            play() {
+              const source = audioContext.createBufferSource();
+              const gain = audioContext.createGain();
+              source.buffer = buffer;
+              gain.gain.value = Math.min(1, this.volume * 4);
+              source.connect(gain);
+              gain.connect(audioContext.destination);
+              source.start();
+              return Promise.resolve();
+            },
+          };
+        } catch (error) {
+          console.warn('Could not prepare sound, falling back to audio playback', error);
+          return loadAudio(src);
+        }
+      };
+    }
+    window.ready = box.initialize().then(rollDice);
     form.addEventListener('input', async event => {
       labels();
-      if (event.target.name === 'material') {
-        await box.updateConfig({ theme_customColorset: colorset(form.material.value) });
-        box.roll('2d20+2d6+1d12+1d8+1d4');
+      if (event.target.matches('[data-die]')) return;
+      if (event.target.name === 'material' || event.target.name === 'skin') {
+        await box.updateConfig({ theme_customColorset: colorset(form.material.value), sounds: true });
+        rollDice();
       } else {
         box.updateConfig(settings());
       }
     });
-    document.querySelector('#roll').addEventListener('click', () => box.roll('2d20+2d6+1d12+1d8+1d4'));
+    document.querySelector('#roll').addEventListener('click', () => {
+      if (audioContext?.state === 'suspended') audioContext.resume().catch(console.warn);
+      rollDice();
+    });
   </script>
 </body>
 </html>
+
