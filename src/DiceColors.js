@@ -128,9 +128,9 @@ export class DiceColors {
 		}
 		
 		if (TEXTURELIST.hasOwnProperty(texturename)) {
-			return TEXTURELIST[texturename]
+			return { ...TEXTURELIST[texturename] }
 		}
-		return TEXTURELIST['none']
+		return { ...TEXTURELIST['none'] }
 	}
 
 }
