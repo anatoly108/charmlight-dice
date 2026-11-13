@@ -202,7 +202,6 @@ class DiceFactory {
 			var mat;
 			if (this.dice_material != 'none') {
 				mat = new THREE.MeshStandardMaterial(MATERIALTYPES[this.dice_material]);
-				mat.envMapIntensity = 0;
 			} else {
 				mat = new THREE.MeshPhongMaterial(this.material_options);
 			}
@@ -245,8 +244,8 @@ class DiceFactory {
 				}
 			}
 			mat.opacity = 1;
-			mat.transparent = true;
-			mat.depthTest = false;
+			mat.transparent = false;
+			mat.depthTest = true;
 			mat.needUpdate = true;
 			materials.push(mat);
 		}
@@ -492,6 +491,7 @@ class DiceFactory {
 		}
 
 		var compositetexture = new THREE.CanvasTexture(canvas);
+		compositetexture.colorSpace = THREE.SRGBColorSpace;
 		var bumpMap;
 		if (!isTexture) {
 			bumpMap = new THREE.CanvasTexture(canvasBump);

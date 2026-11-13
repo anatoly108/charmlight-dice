@@ -1,4 +1,5 @@
 import * as THREE from "three"
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js"
 import * as CANNON from "cannon-es"
 
 import { DiceNotation } from './DiceNotation.js';
@@ -143,8 +144,25 @@ class DiceBox {
 		this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
 		this.container.appendChild(this.renderer.domElement);
 		this.renderer.shadowMap.enabled = this.shadows;
-		this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+		this.renderer.shadowMap.type = THREE.PCFShadowMap;
 		this.renderer.setClearColor(0x000000, 0);
+		this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+		this.renderer.toneMapping = THREE.NeutralToneMapping;
+		this.renderer.toneMappingExposure = 1;
+
+		// Bake local studio softboxes once; no remote environment assets are needed.
+		const environment = new RoomEnvironment();
+		const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+		try {
+			if (this.environmentTarget) this.environmentTarget.dispose();
+			this.environmentTarget = pmremGenerator.fromScene(environment, 0.04);
+			this.scene.environment = this.environmentTarget.texture;
+			// RoomEnvironment is Y-up; the dice board is Z-up.
+			this.scene.environmentRotation.set(Math.PI / 2, 0, 0);
+		} finally {
+			environment.dispose();
+			pmremGenerator.dispose();
+		}
 
 		this.setDimensions(this.dimensions);
 
@@ -347,10 +365,16 @@ class DiceBox {
 		
 		const maxwidth = Math.max(this.display.containerWidth, this.display.containerHeight);
 
-		if (this.light) this.scene.remove(this.light);
+		if (this.light) {
+			this.scene.remove(this.light);
+			this.light.dispose();
+		}
 		if (this.light_amb) this.scene.remove(this.light_amb);
-		this.light = new THREE.SpotLight(this.color_spotlight, this.light_intensity);
+		this.light = new THREE.SpotLight(this.color_spotlight, this.light_intensity * Math.PI);
 		this.light.position.set(-maxwidth / 2, maxwidth / 2, maxwidth * 3);
+		// The physics board uses large world units. Compensate modern inverse-square
+		// attenuation at its center so table resizing preserves illumination.
+		this.light.intensity *= this.light.position.lengthSq();
 		this.light.target.position.set(0, 0, 0);
 		this.light.distance = maxwidth * 5;
 		this.light.angle = Math.PI/4;
@@ -358,15 +382,22 @@ class DiceBox {
 		this.light.shadow.camera.near = maxwidth / 10;
 		this.light.shadow.camera.far = maxwidth * 5;
 		this.light.shadow.camera.fov = 50;
-		this.light.shadow.bias = 0.001;
-		this.light.shadow.mapSize.width = 1024;
-		this.light.shadow.mapSize.height = 1024;
+		this.light.shadow.bias = -0.0001;
+		this.light.shadow.normalBias = 0.5;
+		this.light.shadow.radius = 3;
+		const shadowSize = Math.min(this.container.clientWidth, this.container.clientHeight) < 500 ? 1024 : 2048;
+		this.light.shadow.mapSize.set(shadowSize, shadowSize);
 		this.scene.add(this.light);
 
-		this.light_amb = new THREE.HemisphereLight( 0xffffbb, 0x676771, this.light_intensity );
+		this.light_amb = new THREE.HemisphereLight( 0xffffbb, 0x676771, this.light_intensity * Math.PI * 0.3 );
 		this.scene.add(this.light_amb);
+		this.scene.environmentIntensity = this.light_intensity;
 
-		if (this.desk) this.scene.remove(this.desk);
+		if (this.desk) {
+			this.scene.remove(this.desk);
+			this.desk.geometry.dispose();
+			this.desk.material.dispose();
+		}
 		let shadowplane = new THREE.ShadowMaterial();
 		shadowplane.opacity = 0.5;
 		this.desk = new THREE.Mesh(new THREE.PlaneGeometry(this.display.containerWidth * 6, this.display.containerHeight * 6, 1, 1), shadowplane);
@@ -381,7 +412,10 @@ class DiceBox {
 			const canvas = this.renderer.domElement;
 			const width = this.container.clientWidth;
 			const height = this.container.clientHeight;
-			const needResize = canvas.width !== width || canvas.height !== height;
+			const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+			const ratioChanged = this.renderer.getPixelRatio() !== pixelRatio;
+			if (ratioChanged) this.renderer.setPixelRatio(pixelRatio);
+			const needResize = ratioChanged || canvas.width !== Math.floor(width * pixelRatio) || canvas.height !== Math.floor(height * pixelRatio);
 			if (needResize) {
 				this.setDimensions(new THREE.Vector2(this.container.clientWidth, this.container.clientHeight))
 			}
@@ -818,15 +852,17 @@ class DiceBox {
 		let time = Date.now();
 		this.last_time = this.last_time || time - (this.framerate*1000);
 		let time_diff = (time - this.last_time) / 1000;
-		++this.iteration;
 		let neededSteps = Math.floor(time_diff / this.framerate);
 
 		// this.container.style.opacity = '1';
 
 		for(let i = 0; i < neededSteps; i++) {
+			++this.iteration;
 			this.world.step(this.framerate);
-			// this.cannonDebugger.update()
 			++this.steps;
+			// Match simulateThrow() at every fixed physics step. A slow display
+			// frame must not change sleep transitions or run beyond its result.
+			if (this.throwFinished()) break;
 		}
 
 		// update physics interactions visually
