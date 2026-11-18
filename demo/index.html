@@ -223,7 +223,7 @@
     };
     labels();
     const box = window.box = new DiceBox('#dice', {
-      assetPath: '/', sounds: true, ...settings(), theme_customColorset: colorset(form.material.value),
+      assetPath: new URL('../', location.href).href, sounds: true, ...settings(), theme_customColorset: colorset(form.material.value),
     });
     // iOS requires audio to be unlocked by a user gesture. Play decoded clips
     // through one context, which can be resumed synchronously when Roll is tapped.

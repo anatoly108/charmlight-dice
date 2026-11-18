@@ -48,7 +48,8 @@
     "test:browser": "node --test tests/browser/*.test.cjs",
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:demo": "vite build --config vite.demo.config.js"
   },
   "dependencies": {
     "cannon-es": "^0.20.0",

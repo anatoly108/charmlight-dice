@@ -1,24 +1,15 @@
-# dice-box-threejs
+# charmlight-dice
 
-Charmlight's private maintenance copy. See [upstream fixes and verification](docs/upstream-fixes.md) for imported bug fixes, backend-supplied results, and test instructions.
-3D Dice implemented with ThreeJS and Cannon ES
+3D dice for [charmlight.app](https://charmlight.app). Built with three.js and cannon-es. Give it dice notation, and it rolls physical dice on a see-through canvas and hands you a JSON result when they land. The result can also be decided up front, for example by your backend, and the dice are thrown so they land on it.
 
-Based on [Major's 3D Dice](https://majorvictory.github.io/3DDiceRoller/)
-
-The goal of this project is to decouple the UI of Major's 3D Dice and strip down the dice box to just the essentials. Just a module that accepts simple dice notation input and outputs a JSON object when the dice finish rolling.
-
-Why another dice roller when you have [@3d-dice/dice-box](https://github.com/3d-dice/dice-box)?
-Teall dice had already solved predeterministic rolling, which is a feature some developers really need. Major's 3D dice are based on Teall Dice.
-
-## Demo
-https://codesandbox.io/s/dice-box-threejs-j79h35?file=/src/index.js
+**[Demo](https://anatoly108.github.io/charmlight-dice/)**
 
 ## Install
-The package is private and installs straight from this repo. It ships as source, so there is no build step.
+The package installs straight from this repo. It ships as source, so there is no build step.
 ```
 npm install github:anatoly108/charmlight-dice#main
 ```
-Pin a commit instead of `main` for repeatable installs. The machine that installs needs read access to this repo.
+Pin a commit instead of `main` for repeatable installs.
 
 Optional: textures and impact sounds. Skip this if you use `texture: "none"` and your own sounds.
 ```
@@ -57,8 +48,8 @@ const defaultConfig = {
 	theme_surface:  "green-felt",
 	sound_dieMaterial: 'plastic',
 	theme_customColorset: null,
-	theme_colorset: "white", // see available colorsets in https://github.com/3d-dice/dice-box-threejs/blob/main/src/const/colorsets.js
-	theme_texture: "", // see available textures in https://github.com/3d-dice/dice-box-threejs/blob/main/src/const/texturelist.js
+	theme_colorset: "white", // see available colorsets in src/const/colorsets.js
+	theme_texture: "", // see available textures in src/const/texturelist.js
 	theme_material: "glass", // "none" (Phong plastic) | "plastic" (PBR plastic) | "metal" | "wood" | "glass"
 	gravity_multiplier: 400,
 	light_intensity: 0.7,
@@ -98,7 +89,7 @@ Shadows behave like those of a real lamp: dark and sharp where a die touches the
 
 `shadow_quality` sets how many lights form the soft key light: `low` = 1, `medium` = 3, `high` = 5. `auto` uses `medium` on small screens and `high` elsewhere. Use `low` if a device struggles.
 
-`npx vite . --port 5199` then `http://localhost:5199/demo/index.html` opens a playground with sliders for all of this.
+The [live playground](https://anatoly108.github.io/charmlight-dice/) has sliders for all of this. To run it locally: `npx vite . --port 5199`, then open `http://localhost:5199/demo/index.html`.
 
 The playground also has:
 - **Random**: a new look from a recipe that is known to work, with its knobs varied inside the range where it looks good. The recipes are in `demo/random.js`.
@@ -174,7 +165,18 @@ setTimeout(async () => {
 ```
 
 ## Predetermined Outcomes
-As mentioned previously, this project was forked for it's predeterministic rolling capability. The notation to roll your predetermined outcomes looks like this:
+You can decide the outcome before the dice are thrown, for example when your backend supplies the result. The notation looks like this:
 ```
 Box.roll("6d6@4,4,4,4,4,4") // rolls six dice that will land on 4's
 ```
+
+## Development
+```
+npm test               # unit tests
+npm run test:browser   # rendering tests (Playwright)
+npm run build:demo     # builds the playground into dist-demo/
+```
+The playground is deployed to GitHub Pages from `main` by `.github/workflows/pages.yml`. Notes on fixes imported from upstream are in [docs/upstream-fixes.md](docs/upstream-fixes.md).
+
+## Credits
+charmlight-dice is a fork of [dice-box-threejs](https://github.com/3d-dice/dice-box-threejs), which is based on [Major's 3D Dice](https://majorvictory.github.io/3DDiceRoller/) and, through it, on Teall Dice. MIT licensed, see [LICENSE](LICENSE).
