@@ -46,6 +46,8 @@ const defaultConfig = {
 	reflections_follow_light: true,
 	// Surface relief from normal maps instead of bump maps. Applies to dice thrown afterwards.
 	normal_maps: true,
+	// Plays the throw faster or slower without changing where the dice land.
+	roll_speed: 1,
 	baseScale: 100,
 	strength: 1,
 	iterationLimit: 1000,
@@ -428,6 +430,115 @@ class DiceBox {
 			patch.material.color.set(this.shadow_color);
 			patch.material.opacity = Math.min(1, this.shadow_opacity * 1.3) * fade * fade;
 		}
+	}
+
+	// ---- Optional hooks for apps that decorate the dice (tooltips, effects, history) ----
+
+	// Where a die sits on screen: its center and radius in CSS pixels, measured
+	// from the top-left corner of the container.
+	getDieScreenPosition(id) {
+		const dicemesh = this.diceList[id];
+		if (!dicemesh || !this.camera) return null;
+		if (!dicemesh.geometry.boundingSphere) dicemesh.geometry.computeBoundingSphere();
+		this.camera.updateMatrixWorld();
+		const width = this.container.clientWidth, height = this.container.clientHeight;
+		const center = dicemesh.position.clone().project(this.camera);
+		const edge = dicemesh.position.clone();
+		edge.x += dicemesh.geometry.boundingSphere.radius;
+		edge.project(this.camera);
+		return {
+			x: (center.x + 1) / 2 * width,
+			y: (1 - center.y) / 2 * height,
+			radius: Math.abs(edge.x - center.x) / 2 * width,
+		};
+	}
+
+	// The id of the die under a point (CSS pixels from the container's top-left),
+	// or null. Use it for hover and tap.
+	pickDie(x, y) {
+		if (!this.camera || !this.diceList.length) return null;
+		const pointer = new THREE.Vector2(
+			x / this.container.clientWidth * 2 - 1,
+			1 - y / this.container.clientHeight * 2,
+		);
+		this.camera.updateMatrixWorld();
+		for (const dicemesh of this.diceList) dicemesh.updateMatrixWorld();
+		const raycaster = new THREE.Raycaster();
+		raycaster.setFromCamera(pointer, this.camera);
+		const hit = raycaster.intersectObjects(this.diceList, false)[0];
+		return hit ? this.diceList.indexOf(hit.object) : null;
+	}
+
+	// Lights up the number a die landed on. Pass { glow, color } to switch it on
+	// (color defaults to the number colour) and null to switch it off. Cheap
+	// enough to call every frame for a pulse.
+	highlightDie(id, highlight = {}) {
+		const dicemesh = this.diceList[id];
+		if (!dicemesh) return;
+		const materials = [].concat(dicemesh.material);
+		const top = this.getTopFaceMaterial(dicemesh);
+		for (const material of materials) {
+			const next = highlight && (material === top || !top)
+				? { glow: Math.max(0, Number(highlight.glow ?? 1.5) || 0), color: highlight.color }
+				: null;
+			if (!next && !material.userData.highlight) continue;
+			material.userData.highlight = next;
+			this.DiceFactory.applyMaterialTuning(material);
+		}
+		if (this.renderer && this.camera && !this.rolling) this.render();
+	}
+
+	// The material of the face that points up (down for a d4, whose result is
+	// read along its base).
+	getTopFaceMaterial(dicemesh) {
+		if (dicemesh.shape === 'd4') return null;
+		const up = new THREE.Vector3(0, 0, 1), normal = new THREE.Vector3();
+		const normals = dicemesh.geometry.getAttribute('normal');
+		let closest = null, closestAngle = Infinity;
+		for (const group of dicemesh.geometry.groups) {
+			if (group.materialIndex === 0) continue;
+			const angle = normal.fromBufferAttribute(normals, group.start).applyQuaternion(dicemesh.quaternion).angleTo(up);
+			if (angle < closestAngle) {
+				closestAngle = angle;
+				closest = group;
+			}
+		}
+		return closest ? [].concat(dicemesh.material)[closest.materialIndex] : null;
+	}
+
+	// A picture of one die exactly as it lies, on a see-through background:
+	// a canvas of size x size pixels. Use it to keep a rolled die around after
+	// the table is cleared.
+	snapshotDie(id, { size = 128, padding = 1.15, shadow = false } = {}) {
+		const dicemesh = this.diceList[id];
+		const position = this.getDieScreenPosition(id);
+		if (!dicemesh || !position || !this.renderer) return null;
+		this.updateContactShadows();
+		const hidden = [];
+		const hide = object => {
+			if (object && object.visible) {
+				object.visible = false;
+				hidden.push(object);
+			}
+		};
+		for (const other of this.diceList) {
+			if (other !== dicemesh) hide(other);
+			if (other !== dicemesh || !shadow) hide(other.contactShadow);
+		}
+		if (!shadow) hide(this.desk);
+		this.renderer.render(this.scene, this.camera);
+
+		const canvas = document.createElement("canvas");
+		canvas.width = canvas.height = size;
+		const ratio = this.renderer.getPixelRatio(), half = position.radius * padding;
+		// Copy before the browser clears the drawing buffer at the end of this task.
+		canvas.getContext("2d").drawImage(this.renderer.domElement,
+			(position.x - half) * ratio, (position.y - half) * ratio, half * 2 * ratio, half * 2 * ratio,
+			0, 0, size, size);
+
+		for (const object of hidden) object.visible = true;
+		this.render();
+		return canvas;
 	}
 
 	// Frees the WebGL context, GPU memory and listeners, and removes the canvas.
@@ -1197,8 +1308,9 @@ class DiceBox {
 		this.animstate = 'throw';
 		let time = Date.now();
 		this.last_time = this.last_time || time - (this.framerate*1000);
+		const speed = Math.max(0.1, Number(this.roll_speed) || 1);
 		let time_diff = (time - this.last_time) / 1000;
-		let neededSteps = Math.floor(time_diff / this.framerate);
+		let neededSteps = Math.floor(time_diff * speed / this.framerate);
 
 		// this.container.style.opacity = '1';
 
@@ -1221,7 +1333,7 @@ class DiceBox {
 		}
 
 		this.render();
-		this.last_time = this.last_time + neededSteps*this.framerate*1000;
+		this.last_time = this.last_time + neededSteps*this.framerate*1000/speed;
 
 
 		// roll finished

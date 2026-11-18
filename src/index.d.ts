@@ -136,6 +136,8 @@ export interface DiceBoxOptions {
   reflections_follow_light?: boolean
   /** Surface relief from normal maps instead of bump maps. Applies to dice thrown afterwards. Default true. */
   normal_maps?: boolean
+  /** Plays the throw faster or slower without changing where the dice land. 1 = normal, 2 = twice as fast. */
+  roll_speed?: number
   baseScale?: number
   /** Toss strength. Default 1. */
   strength?: number
@@ -174,6 +176,15 @@ export class DiceBox {
   setShadows(enabled: boolean): void
   enableShadows(): void
   disableShadows(): void
+
+  /** Where a die sits on screen, in CSS pixels from the container's top-left corner. */
+  getDieScreenPosition(id: number): { x: number; y: number; radius: number } | null
+  /** The id of the die under a point (CSS pixels from the container's top-left), or null. */
+  pickDie(x: number, y: number): number | null
+  /** Lights up the number a die landed on. Pass null to switch it off. Cheap enough to call every frame. */
+  highlightDie(id: number, highlight?: { glow?: number; color?: number | string } | null): void
+  /** A picture of one die as it lies, on a see-through background. */
+  snapshotDie(id: number, options?: { size?: number; padding?: number; shadow?: boolean }): HTMLCanvasElement | null
 
   /** Frees the WebGL context and listeners and removes the canvas. The instance is dead afterwards. */
   destroy(): void

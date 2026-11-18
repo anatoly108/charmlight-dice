@@ -66,6 +66,7 @@ const defaultConfig = {
 	rim_color: 0xdfe8ff,
 	reflections_follow_light: true, // studio reflections turn with the main light
 	normal_maps: true, // relief from normal maps; false = the older bump maps
+	roll_speed: 1, // plays the throw faster or slower; the result stays the same
 	baseScale: 100,
 	strength: 1, // toss strength of dice
 	onRollComplete: () => {}
@@ -139,6 +140,19 @@ PBR materials are `"plastic"`, `"metal"`, `"glass"` and `"wood"`. Their own valu
 ## Reflections and relief
 - `reflections_follow_light` turns the studio room so its brightest side sits where the main light is. Reflections then come from the same side as the light that casts the shadows. Set it to `false` to keep the room fixed.
 - `normal_maps` draws the surface relief (texture bumps and engraved numbers) from normal maps. They are made in the browser from each texture's height image when a die is first created, so they need no extra files. They stay crisper and steadier than bump maps when a die is small or seen at an angle. A change applies to dice thrown afterwards.
+
+## Hooks for decorating the dice
+All optional. They let an app add its own tooltips, effects and history around the dice, without the library knowing about any of it.
+
+| Call | What it gives you |
+| --- | --- |
+| `box.getDieScreenPosition(id)` | `{ x, y, radius }` in CSS pixels from the container's top-left. Anchor a tooltip or a burst of sparks there. |
+| `box.pickDie(x, y)` | The id of the die under a point, or `null`. Use it for hover and tap. |
+| `box.highlightDie(id, { glow, color })` | Lights up the number the die landed on. `null` switches it off. |
+| `box.snapshotDie(id, { size })` | A canvas with a picture of the die as it lies, on a see-through background. Keep it after the table is cleared. |
+| `roll_speed` option | Plays the throw faster or slower. Set it mid-throw to fast-forward. |
+
+`id` is the die's index in the roll, the same one the results carry.
 
 ## Getting Results
 ### There are three ways to get results

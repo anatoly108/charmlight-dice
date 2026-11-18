@@ -199,13 +199,16 @@ class DiceFactory {
 		material.normalScale.setScalar(number('texture_depth', 1));
 
 		// Glowing numbers: the lettering emits light of its own.
-		const glow = number('glow', 0), glowMap = glow > 0 ? material.userData.glowMap || null : null;
+		// A highlighted face (see DiceBox.highlightDie) glows on top of the tuning.
+		const highlight = material.userData.highlight;
+		const glow = Math.max(number('glow', 0), highlight?.glow ?? 0);
+		const glowMap = glow > 0 ? material.userData.glowMap || null : null;
 		if (material.userData.glowMap) {
 			if (material.emissiveMap !== glowMap) {
 				material.emissiveMap = glowMap;
 				material.needsUpdate = true;
 			}
-			material.emissive.set(glowMap ? this.materialTuning.glow_color || material.userData.labelColor || '#ffffff' : 0x000000);
+			material.emissive.set(glowMap ? highlight?.color || this.materialTuning.glow_color || material.userData.labelColor || '#ffffff' : 0x000000);
 			material.emissiveIntensity = glow;
 		}
 		if (material.isMeshPhongMaterial) {

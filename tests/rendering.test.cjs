@@ -552,3 +552,82 @@ test('random looks always name real materials, textures and knobs', () => {
   }
   assert.ok(materials.size >= 4, 'random looks must cover several materials');
 });
+
+test('optional hooks locate, pick and highlight a settled die', () => {
+  const box = makeBox();
+  box.DiceFactory.applyColorSet({
+    id: 'hooks-test', foreground: '#f4d899', background: '#48364e', outline: '#181220',
+    texture: { name: 'none', material: 'none' },
+  });
+  const die = box.DiceFactory.create('d20');
+  die.notation = { type: 'd20' };
+  box.diceList.push(die);
+  box.scene.add(die);
+  die.position.set(0, 0, 79);
+
+  const center = box.getDieScreenPosition(0);
+  assert.ok(Math.abs(center.x - 450) < 1e-6 && Math.abs(center.y - 300) < 1e-6, 'a die at the origin sits mid-container');
+  assert.ok(center.radius > 40 && center.radius < 70, `a d20 is about 100px across: ${center.radius}`);
+  die.position.set(450, 300, 79);
+  const moved = box.getDieScreenPosition(0);
+  assert.ok(moved.x > center.x && moved.y < center.y, 'right and up in the world is right and up on screen');
+  assert.equal(box.getDieScreenPosition(5), null);
+
+  assert.equal(box.pickDie(moved.x, moved.y), 0);
+  assert.equal(box.pickDie(moved.x - 3 * moved.radius, moved.y), null);
+
+  // Highlighting only touches the face that points up, and can be undone.
+  for (const material of die.material) material.userData.glowMap = new THREE.Texture();
+  const top = box.getTopFaceMaterial(die);
+  box.highlightDie(0, { glow: 2, color: '#ffcc00' });
+  const lit = die.material.filter(material => material.emissiveMap);
+  assert.deepEqual(lit.map(material => die.material.indexOf(material)), [die.material.indexOf(top)]);
+  assert.equal(top.emissive.getHexString(), 'ffcc00');
+  box.updateConfig({ material_tuning: { brightness: 1.2 } });
+  assert.equal(top.emissiveIntensity, 2, 'retuning the material keeps the highlight');
+  box.highlightDie(0, null);
+  assert.equal(die.material.some(material => material.emissiveMap), false);
+  assert.equal(top.emissiveIntensity, 0);
+});
+
+test('roll speed plays the same throw faster without changing its result', async t => {
+  const previousWindow = globalThis.window;
+  const frames = [];
+  globalThis.window = Object.assign(new EventTarget(), {
+    devicePixelRatio: 1, requestAnimationFrame: callback => frames.push(callback), cancelAnimationFrame() {},
+  });
+  let now = 1_000_000;
+  t.mock.method(Date, 'now', () => now);
+  t.mock.method(globalThis, 'setTimeout', callback => { callback(); return 0; });
+  const previousRaf = globalThis.requestAnimationFrame, previousEvent = globalThis.CustomEvent;
+  globalThis.requestAnimationFrame = callback => frames.push(callback);
+  globalThis.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = init?.detail; } };
+  globalThis.document.dispatchEvent = () => {};
+  t.after(() => { globalThis.window = previousWindow; globalThis.requestAnimationFrame = previousRaf; globalThis.CustomEvent = previousEvent; });
+
+  const framesFor = async roll_speed => {
+    const box = makeBox({ roll_speed });
+    box.DiceFactory.applyColorSet({
+      id: `speed-${roll_speed}`, foreground: '#f4d899', background: '#48364e', outline: '#181220',
+      texture: { name: 'none', material: 'none' },
+    });
+    box.colorData = { texture: { material: 'none' } };
+    frames.length = 0;
+    let settled = null;
+    const pending = box.roll('1d20@17').then(result => { settled = result; });
+    let count = 0;
+    while (!settled && count < 5000) {
+      now += 1000 / 60;
+      const frame = frames.shift();
+      if (frame) frame();
+      await Promise.resolve();
+      count++;
+    }
+    await pending;
+    return { count, value: settled.sets[0].rolls[0].value };
+  };
+  const normal = await framesFor(1), fast = await framesFor(3);
+  assert.equal(normal.value, 17);
+  assert.equal(fast.value, 17, 'a faster throw must land on the supplied value');
+  assert.ok(fast.count < normal.count * 0.5, `speed 3 should need far fewer frames: ${normal.count} -> ${fast.count}`);
+});

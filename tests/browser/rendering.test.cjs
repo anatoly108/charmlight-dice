@@ -106,6 +106,18 @@ for (const viewport of [{ width: 900, height: 600 }, { width: 390, height: 844 }
           };
           const fromRight = shadowOffset(90), fromLeft = shadowOffset(270);
 
+          // Hooks for apps: where a die is, which die is under a point, and its picture.
+          const spot = box.getDieScreenPosition(0);
+          const picked = box.pickDie(spot.x, spot.y);
+          box.highlightDie(0, { glow: 2, color: '#ffd36b' });
+          const picture = box.snapshotDie(0, { size: 64 });
+          const drawn = picture.getContext('2d').getImageData(0, 0, 64, 64).data;
+          let solid = 0, corners = 0;
+          for (let i = 3; i < drawn.length; i += 4) if (drawn[i] > 200) solid++;
+          for (const index of [0, 63, 64 * 63, 64 * 64 - 1]) corners += drawn[index * 4 + 3];
+          box.highlightDie(0, null);
+          const hooks = { picked, inside: spot.x > 0 && spot.y > 0 && spot.x < innerWidth && spot.y < innerHeight, solid, corners };
+
           // Every optional layer at once: each one compiles new shader code.
           const face = box.diceList[0].material[1];
           const relief = { normal: Boolean(face.normalMap), bump: Boolean(face.bumpMap), glowMask: Boolean(face.userData.glowMap) };
@@ -130,7 +142,7 @@ for (const viewport of [{ width: 900, height: 600 }, { width: 390, height: 844 }
             revision, values: result.sets[0].rolls.map(die => die.value),
             faces: box.diceList.map(die => die.getFaceValue().value),
             visible, bright, glError: gl.getError(),
-            shadow, reflected, fromRight, fromLeft, relief, plain, layered, layerError, restored, lights: box.lights.length, pixelRatio: box.renderer.getPixelRatio(),
+            shadow, reflected, fromRight, fromLeft, relief, hooks, plain, layered, layerError, restored, lights: box.lights.length, pixelRatio: box.renderer.getPixelRatio(),
             toneMapping: box.renderer.toneMapping,
             environment: Boolean(box.scene.environment),
             webglVersion: gl.getParameter(gl.VERSION),
@@ -151,6 +163,10 @@ for (const viewport of [{ width: 900, height: 600 }, { width: 390, height: 844 }
         assert.ok(state.shadow > 100, 'grounded dice must draw soft shadow pixels');
         assert.equal(state.lights, viewport.width < 500 ? 3 : 5);
         assert.deepEqual(state.relief, { normal: true, bump: false, glowMask: true }, 'faces must carry a normal map and a glow mask');
+        assert.equal(state.hooks.picked, 0, 'the point a die reports must pick that die');
+        assert.equal(state.hooks.inside, true);
+        assert.ok(state.hooks.solid > 64 * 64 * 0.4, `a die picture must show the die: ${state.hooks.solid}`);
+        assert.equal(state.hooks.corners, 0, 'a die picture must have a see-through background');
         assert.equal(state.layerError, 0, 'the optional material layers must compile and draw');
         assert.ok(state.layered > state.plain * 1.02, `glow and rim light must add light: ${state.plain} -> ${state.layered}`);
         assert.ok(Math.abs(state.restored - state.plain) < state.plain * 0.005, 'dropping the tuning must restore the look');
