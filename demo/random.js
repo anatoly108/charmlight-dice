@@ -2,9 +2,36 @@
 // from a recipe that is known to work, and every knob stays inside the range
 // where that recipe looks good.
 
-const between = (min, max, step = 0.05) => Math.round((min + Math.random() * (max - min)) / step) * step;
-const pick = list => list[Math.floor(Math.random() * list.length)];
-const chance = probability => Math.random() < probability;
+// A seed makes a look repeatable: the same seed always gives the same look, so a
+// short link can share it. Seeds look like "1-k7f3q9"; the number in front is the
+// recipe version. If the recipes below ever change, bump RECIPE_VERSION and keep the
+// old recipes, so links that were already shared keep showing the same look.
+export const RECIPE_VERSION = 1;
+export const newSeed = () => `${RECIPE_VERSION}-${Math.random().toString(36).slice(2, 8).padEnd(6, '0')}`;
+const hash = text => {
+  let h = 1779033703 ^ text.length;
+  for (let i = 0; i < text.length; i++) {
+    h = Math.imul(h ^ text.charCodeAt(i), 3432918353);
+    h = (h << 13) | (h >>> 19);
+  }
+  h = Math.imul(h ^ (h >>> 16), 2246822507);
+  h = Math.imul(h ^ (h >>> 13), 3266489909);
+  return (h ^ (h >>> 16)) >>> 0;
+};
+const generator = seed => { // mulberry32
+  let state = hash(seed);
+  return () => {
+    state = (state + 0x6D2B79F5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+};
+let random = Math.random;
+
+const between = (min, max, step = 0.05) => Math.round((min + random() * (max - min)) / step) * step;
+const pick = list => list[Math.floor(random() * list.length)];
+const chance = probability => random() < probability;
 const round = value => Math.round(value * 100) / 100;
 
 function hsl(hue, saturation, lightness) {
@@ -86,9 +113,10 @@ const lightMoods = [
   { color_spotlight: '#dfeaff', fill_color: '#eef3ff', rim_color: '#ffffff' },
 ];
 
-export function randomLook() {
+export function randomLook(seed) {
+  random = seed ? generator(String(seed)) : Math.random;
   const total = recipes.reduce((sum, recipe) => sum + recipe.weight, 0);
-  let roll = Math.random() * total;
+  let roll = random() * total;
   const recipe = recipes.find(candidate => (roll -= candidate.weight) < 0) || recipes[0];
   const { material, background, foreground, texture, tuning } = recipe.make();
   return {

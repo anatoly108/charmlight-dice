@@ -4,6 +4,8 @@
 
 **[Demo](https://anatoly108.github.io/charmlight-dice/)**
 
+The address bar of the demo always describes the look on screen, so copy it to share a look. Random looks are just a seed, for example `?seed=1-k7f3q9`. Saved looks are `?preset=03-brushed-steel`. Whatever you change on top is added as plain values, like `&azimuth=300&glow=0.4&dice=2d20+3d6`.
+
 ## Install
 The package installs straight from this repo. It ships as source, so there is no build step.
 ```
