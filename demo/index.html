@@ -121,7 +121,7 @@
     import DiceBox from '/src/index.js';
     import { TEXTURELIST } from '/src/const/texturelist.js';
     import { MATERIALTYPES } from '/src/const/materialtypes.js';
-    import { randomLook, darken } from './random.js';
+    import { randomLook, darken, newSeed } from './random.js';
     const form = document.querySelector('#controls');
     // Textures grouped by how they fake surface depth under the light.
     const bumpGroups = [
@@ -143,8 +143,6 @@
       form.texture.append(options);
     }
     form.texture.value = 'fire';
-    const query = new URLSearchParams(location.search);
-    for (const [key, value] of query) if (form.elements[key]) form.elements[key].value = value;
     // The outline around the numbers is a darker shade of the dice colour.
     const colorset = material => ({
       name: `Playground ${form.dice_colour.value} ${form.number_colour.value} ${form.texture.value} ${material}`,
@@ -157,23 +155,17 @@
     // Tuning sliders follow the chosen material: its own values are the starting
     // point, and sliders that do nothing for it are switched off.
     const isPhong = () => form.material.value === 'none';
+    const tuningDefaults = (material, numberColour) => {
+      const type = MATERIALTYPES[material];
+      return {
+        brightness: 1, texture_depth: 1, sheen: 1, sheen_tightness: 5,
+        roughness: type.roughness ?? 0.35, metalness: type.metalness ?? 0, reflections: type.envMapIntensity ?? 1,
+        clearcoat: type.clearcoat ?? 0, clearcoat_roughness: type.clearcoatRoughness ?? 0,
+        glow: 0, glow_color: numberColour, iridescence: 0, iridescence_thickness: 400, anisotropy: 0, anisotropy_angle: 0,
+      };
+    };
     const resetTuning = () => {
-      const type = MATERIALTYPES[form.material.value];
-      Object.assign(form.brightness, { value: 1 });
-      Object.assign(form.texture_depth, { value: 1 });
-      Object.assign(form.sheen, { value: 1 });
-      Object.assign(form.sheen_tightness, { value: 5 });
-      form.roughness.value = type.roughness ?? 0.35;
-      form.metalness.value = type.metalness ?? 0;
-      form.reflections.value = type.envMapIntensity ?? 1;
-      form.clearcoat.value = type.clearcoat ?? 0;
-      form.clearcoat_roughness.value = type.clearcoatRoughness ?? 0;
-      form.glow.value = 0;
-      form.glow_color.value = form.number_colour.value;
-      form.iridescence.value = 0;
-      form.iridescence_thickness.value = 400;
-      form.anisotropy.value = 0;
-      form.anisotropy_angle.value = 0;
+      for (const [name, value] of Object.entries(tuningDefaults(form.material.value, form.number_colour.value))) form.elements[name].value = value;
       for (const input of form.querySelectorAll('[data-for]')) input.disabled = (input.dataset.for === 'phong') !== isPhong();
     };
     const tuning = () => ({
@@ -189,6 +181,11 @@
             anisotropy: +form.anisotropy.value, anisotropy_angle: +form.anisotropy_angle.value }),
     });
     resetTuning();
+    // Every control's value as text. Links list what differs from a snapshot.
+    const snapshot = () => Object.fromEntries([...form.elements]
+      .filter(control => control.name && control.name !== 'preset' && ['INPUT', 'SELECT'].includes(control.tagName))
+      .map(control => [control.name, control.type === 'checkbox' ? (control.checked ? '1' : '0') : control.value]));
+    const DEFAULTS = snapshot();
     const settings = () => ({
       light_direction: { azimuth: +form.azimuth.value, elevation: +form.elevation.value },
       shadow_softness: +form.shadow_softness.value,
@@ -222,47 +219,50 @@
       if (notation) return box.roll(notation);
     };
     labels();
-    const box = window.box = new DiceBox('#dice', {
-      assetPath: new URL('../', location.href).href, sounds: true, ...settings(), theme_customColorset: colorset(form.material.value),
-    });
+    let box;
     // iOS requires audio to be unlocked by a user gesture. Play decoded clips
     // through one context, which can be resumed synchronously when Roll is tapped.
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     const audioContext = AudioContextClass ? new AudioContextClass() : null;
-    if (audioContext) {
-      const loadAudio = box.loadAudio.bind(box);
-      box.loadAudio = async src => {
-        try {
-          const response = await fetch(src);
-          if (!response.ok) throw new Error(`Sound request failed: ${response.status}`);
-          const buffer = await audioContext.decodeAudioData(await response.arrayBuffer());
-          return {
-            volume: 1,
-            play() {
-              const source = audioContext.createBufferSource();
-              const gain = audioContext.createGain();
-              source.buffer = buffer;
-              gain.gain.value = Math.min(1, this.volume * 4);
-              source.connect(gain);
-              gain.connect(audioContext.destination);
-              source.start();
-              return Promise.resolve();
-            },
-          };
-        } catch (error) {
-          console.warn('Could not prepare sound, falling back to audio playback', error);
-          return loadAudio(src);
-        }
-      };
-    }
-    window.ready = box.initialize().then(rollDice);
+    const createBox = () => {
+      box = window.box = new DiceBox('#dice', {
+        assetPath: new URL('../', location.href).href, sounds: true, ...settings(), theme_customColorset: colorset(form.material.value),
+      });
+      if (audioContext) {
+        const loadAudio = box.loadAudio.bind(box);
+        box.loadAudio = async src => {
+          try {
+            const response = await fetch(src);
+            if (!response.ok) throw new Error(`Sound request failed: ${response.status}`);
+            const buffer = await audioContext.decodeAudioData(await response.arrayBuffer());
+            return {
+              volume: 1,
+              play() {
+                const source = audioContext.createBufferSource();
+                const gain = audioContext.createGain();
+                source.buffer = buffer;
+                gain.gain.value = Math.min(1, this.volume * 4);
+                source.connect(gain);
+                gain.connect(audioContext.destination);
+                source.start();
+                return Promise.resolve();
+              },
+            };
+          } catch (error) {
+            console.warn('Could not prepare sound, falling back to audio playback', error);
+            return loadAudio(src);
+          }
+        };
+      }
+    };
     const applyControl = async event => {
+      if (!box) return;
       if (event.target.name === 'preset') {
         if (!form.preset.value) return;
         const file = form.preset.value;
         try {
           const preset = await (await fetch(`./presets/${file}`)).json();
-          await importSettings(preset);
+          await importSettings(preset, { preset: file.replace(/\.json$/, '') });
           form.preset.value = file;
           fileMessage(preset.description || `Loaded ${preset.name}`);
         } catch (error) {
@@ -271,6 +271,7 @@
         return;
       }
       labels();
+      scheduleUrl();
       // Colour pickers fire while dragging; apply them once the colour is chosen.
       if (event.target.matches('[data-die]') || (event.target.type === 'color' && event.type === 'input')) return;
       if (event.target.name === 'edge_roundness' || event.target.name === 'normal_maps') {
@@ -290,6 +291,7 @@
     document.querySelector('#reset-tuning').addEventListener('click', () => {
       resetTuning();
       labels();
+      scheduleUrl();
       box.updateConfig(settings());
     });
     // Export and import. "options" is exactly what DiceBox takes, so it can be
@@ -302,7 +304,7 @@
         dice: Object.fromEntries([...form.querySelectorAll('[data-die]')].map(input => [input.dataset.die, +input.value])),
       },
     });
-    const importSettings = async data => {
+    const fillForm = data => {
       const options = data?.options;
       if (!options || typeof options !== 'object') throw new Error('No "options" found in this file.');
       const set = (name, value) => {
@@ -338,7 +340,13 @@
         const count = data.playground?.dice?.[input.dataset.die];
         if (count !== undefined) input.value = count;
       }
+    };
+    // nextBase says what a link should start from: { seed }, { preset }, or nothing.
+    const importSettings = async (data, nextBase = null) => {
+      fillForm(data);
       labels();
+      setBase(nextBase);
+      scheduleUrl();
       await box.updateConfig({ ...settings(), theme_customColorset: colorset(form.material.value), sounds: true });
       rollDice();
     };
@@ -346,12 +354,14 @@
     // Random: a recipe that is known to look good, with knobs varied inside its safe range.
     document.querySelector('#random').addEventListener('click', async () => {
       form.preset.value = '';
-      await importSettings(randomLook());
-      fileMessage('Random look. Export it if you like it.');
+      const seed = newSeed();
+      await importSettings(randomLook(seed), { seed });
+      fileMessage('Random look. The address bar link shares it.');
     });
     // Saved looks from demo/presets.
     fetch('./presets/index.json').then(response => response.json()).then(presets => {
       for (const preset of presets) form.preset.append(new Option(preset.name, preset.file));
+      if (base?.preset && [...form.preset.options].some(option => option.value === `${base.preset}.json`)) form.preset.value = `${base.preset}.json`;
     }).catch(() => { form.preset.disabled = true; });
     const fileMessage = text => { document.querySelector('#file-message').textContent = text; };
     document.querySelector('#export').addEventListener('click', () => {
@@ -378,9 +388,115 @@
     // Tapping anywhere on the table rolls. The menu sits on top of it, so taps
     // on the controls never reach this handler.
     document.querySelector('#dice').addEventListener('click', () => {
+      if (!box) return;
       if (audioContext?.state === 'suspended') audioContext.resume().catch(console.warn);
       rollDice();
     });
+
+    // ---- Links ----
+    // The address bar always describes the current look, so copying it shares it.
+    // It starts from ?seed=1-k7f3q9 (a Random look) or ?preset=03-brushed-steel, then
+    // lists only the controls that differ, e.g. &azimuth=300&glow=0.4. dice=2d20+3d6
+    // lists the dice. Colours are written without the #.
+    const DEFAULT_DICE = diceNotation();
+    let base = null;            // { seed }, { preset } or null
+    let baseline = DEFAULTS;    // the control values right after the starting point
+    const setBase = next => { base = next; baseline = next ? snapshot() : DEFAULTS; };
+    const same = (a, b) => {
+      const x = Number(a), y = Number(b);
+      return a !== '' && b !== '' && Number.isFinite(x) && Number.isFinite(y)
+        ? Math.abs(x - y) < 1e-6 : String(a).toLowerCase() === String(b).toLowerCase();
+    };
+    const buildQuery = () => {
+      const current = snapshot();
+      const parts = [];
+      if (base?.seed) parts.push(`seed=${encodeURIComponent(base.seed)}`);
+      else if (base?.preset) parts.push(`preset=${encodeURIComponent(base.preset)}`);
+      // Choosing a material resets the tuning, so against a new material the tuning is compared with its own defaults.
+      const reset = same(current.material, baseline.material) ? {} : tuningDefaults(current.material, current.number_colour);
+      for (const [name, value] of Object.entries(current)) {
+        const reference = name === 'table' ? DEFAULTS.table : name in reset ? reset[name] : baseline[name];
+        if (same(value, reference)) continue;
+        parts.push(`${name}=${encodeURIComponent(form.elements[name].type === 'color' ? value.replace('#', '') : value)}`);
+      }
+      const dice = diceNotation();
+      if (dice !== DEFAULT_DICE) parts.push(`dice=${dice || 'none'}`);
+      return parts.length ? `?${parts.join('&')}` : '';
+    };
+    const syncUrl = () => {
+      try { history.replaceState(null, '', location.pathname + buildQuery() + location.hash); } catch {}
+    };
+    let urlTimer;
+    const scheduleUrl = () => { // sliders fire many events, and browsers limit how often the URL may change
+      clearTimeout(urlTimer);
+      urlTimer = setTimeout(syncUrl, 250);
+    };
+    // Reads the controls out of a link. Anything it cannot use is skipped and reported.
+    const applyParams = params => {
+      const problems = [];
+      const setControl = (name, raw) => {
+        const control = form.elements[name];
+        if (!control || control.name !== name || !['INPUT', 'SELECT'].includes(control.tagName) || name === 'preset') {
+          problems.push(`unknown "${name}"`);
+          return false;
+        }
+        if (control.type === 'checkbox') control.checked = raw === '1' || raw === 'true';
+        else if (control.type === 'color') {
+          const hex = raw.replace(/^#/, '');
+          if (!/^[0-9a-f]{6}$/i.test(hex)) { problems.push(`${name}: not a colour`); return false; }
+          control.value = `#${hex.toLowerCase()}`;
+        } else if (control.tagName === 'SELECT') {
+          if (![...control.options].some(option => option.value === raw)) { problems.push(`${name}: unknown value "${raw}"`); return false; }
+          control.value = raw;
+        } else {
+          if (raw.trim() === '' || !Number.isFinite(Number(raw))) { problems.push(`${name}: not a number`); return false; }
+          control.value = raw; // the browser keeps it inside the slider's range
+        }
+        return true;
+      };
+      const skin = ['material', 'dice_colour', 'number_colour', 'texture'];
+      let materialChosen = false;
+      for (const name of skin) if (params.has(name)) { const ok = setControl(name, params.get(name)); if (name === 'material') materialChosen = ok; }
+      if (materialChosen) resetTuning(); // as in the menu: a new material starts from its own values
+      for (const [name, raw] of params) if (!skin.includes(name) && !['seed', 'preset', 'dice'].includes(name)) setControl(name, raw);
+      if (params.has('dice')) {
+        const text = params.get('dice').trim().toLowerCase();
+        const counts = {};
+        const tokens = text === 'none' ? [] : text.split(/[\s+]+/).filter(Boolean); // a "+" in a link reads as a space
+        const valid = tokens.every(token => {
+          const match = /^(\d{1,2})(d\d{1,3})$/.exec(token);
+          if (match) counts[match[2]] = (counts[match[2]] || 0) + Number(match[1]);
+          return match && form.querySelector(`[data-die="${match[2]}"]`);
+        });
+        if (valid) for (const input of form.querySelectorAll('[data-die]')) input.value = Math.min(10, counts[input.dataset.die] || 0);
+        else problems.push(`dice: could not read "${text}"`);
+      }
+      return problems;
+    };
+    const startState = async () => {
+      const params = new URLSearchParams(location.search);
+      const problems = [];
+      try {
+        const seed = params.get('seed'), preset = params.get('preset');
+        if (seed !== null && !/^[\w-]{1,32}$/.test(seed)) problems.push('seed: could not read it');
+        else if (seed !== null) { fillForm(randomLook(seed)); setBase({ seed }); }
+        else if (preset !== null && !/^[\w-]{1,64}$/.test(preset)) problems.push('preset: could not read it');
+        else if (preset !== null) {
+          const response = await fetch(`./presets/${preset}.json`);
+          if (!response.ok) throw new Error(`no preset called "${preset}"`);
+          fillForm(await response.json());
+          setBase({ preset });
+        }
+      } catch (error) {
+        problems.push(error.message);
+      }
+      problems.push(...applyParams(params));
+      labels();
+      if (problems.length) fileMessage(`Some of the link was skipped: ${problems.join('; ')}.`);
+      syncUrl();
+    };
+    Object.assign(window, { syncUrl });
+    window.ready = startState().then(() => { createBox(); return box.initialize(); }).then(rollDice);
   </script>
 </body>
 </html>
